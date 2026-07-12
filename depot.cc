@@ -281,10 +281,11 @@ struct Op {
 
     Token tok;
     enum class Kind {
-        Proc_Start,
-        Proc_Return,
-        Proc_Call,
-        Push_Int,
+        Proc_Start, // operand(str): procedure name
+        Proc_Return, // operand(str): procedure name
+        Proc_Call, // operand(str): procedure name
+        Push_Int, // operand(int64): number
+        Push_Str, // operand(int64): index inside of `Da_Thing::strings`
     } kind;
 
     As as;
@@ -301,6 +302,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Proc_Call";
     case Op::Kind::Push_Int:
         return "Push_Int";
+    case Op::Kind::Push_Str:
+        return "Push_Str";
     default:
         std::unreachable();
     }
@@ -481,7 +484,17 @@ struct Parser {
             error(t.loc, std::format("unexpected {}", human(t.kind)));
             return;
         case Token::Kind::String:
-            TODO();
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "pushing strings onto the stack only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+
+            ops.emplace_back(t, Op::Kind::Push_Int, (int64_t)t.text.size());
+            ops.emplace_back(t, Op::Kind::Push_Str, (int64_t)strings.size());
+            strings.push_back(t.text);
             break;
         }
     }
@@ -577,9 +590,23 @@ static std::string compile(const Da_Thing& ctx)
             out << "\tmovq $" << std::get<int64_t>(op.as) << ", %rax\n";
             out << "\tpushq %rax\n";
             break;
+        case Op::Kind::Push_Str:
+            out << "\tmovq $_depot_str" << std::get<int64_t>(op.as) << ", %rax\n";
+            out << "\tpushq %rax\n";
+            break;
         default:
             std::unreachable();
         }
+    }
+
+    out << ".data\n";
+    for (usz i = 0; i < ctx.strings.size(); ++i) {
+        const auto& str = ctx.strings.at(i);
+        out << "_depot_str" << i << ": .byte";
+        for (const u8 c : str) {
+            out << " 0x" << std::hex << (u16)c << ',';
+        }
+        out << " 0x0\n";
     }
 
     out << ".bss\n";

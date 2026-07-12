@@ -8,5 +8,6 @@ proc second {
 
 proc main {
     second
+    "string1"
     69
 }
