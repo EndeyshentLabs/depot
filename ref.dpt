@@ -1,0 +1,14 @@
+link "c"
+
+extern proc malloc uint64 -- ptr ;
+
+proc nicefy int64 -- int64 {
+    dup 2 * 1 + swap 2 * +
+}
+
+proc main {
+    17 nicefy print
+    0 while 1 + dup 100 < {
+        dup print
+    }
+}

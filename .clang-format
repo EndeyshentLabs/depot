@@ -1,0 +1,16 @@
+---
+Language: Cpp
+BasedOnStyle: WebKit
+ColumnLimit: 80
+BinPackParameters: OnePerLine
+BinPackArguments: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AlignAfterOpenBracket: true
+SpaceInEmptyBraces: Always
+AlignOperands: AlignAfterOperator
+BreakBeforeBinaryOperators: All
+BreakConstructorInitializers: BeforeComma
+BreakInheritanceList: BeforeComma
+BreakTemplateDeclarations: Yes
+...

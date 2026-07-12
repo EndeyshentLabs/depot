@@ -1,0 +1,6 @@
+-std=c++23
+-Wall
+-Wextra
+-Werror=switch
+-Werror=switch-enum
+-stdlib=libc++

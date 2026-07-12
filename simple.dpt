@@ -1,0 +1,12 @@
+link "c"
+
+proc second {
+    69
+    420
+    -1337
+}
+
+proc main {
+    second
+    69
+}
