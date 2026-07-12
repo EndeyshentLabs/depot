@@ -211,13 +211,14 @@ struct Lexer {
                 while (c != '\n');
             } else if (c == '"') {
                 std::string text;
+                advance(); // consume opening "
+
                 do {
                     text.push_back(c);
                     advance();
                 } while (c != '"');
 
                 // consume closing "
-                text.push_back(c);
                 advance();
 
                 if (!std::isspace(c)) {
@@ -258,6 +259,12 @@ struct Lexer {
                 } else {
                     toks.emplace_back(start_loc, Token::Kind::Ident, text);
                 }
+            } else {
+                std::println(stderr,
+                             "{}: error: unexpected character {}",
+                             loc,
+                             c);
+                std::exit(3);
             }
         } while (advance());
 
@@ -585,6 +592,68 @@ static std::string compile(const Da_Thing& ctx)
 
 }
 
+#ifdef _WIN32
+
+#error "windows platform is not supported"
+
+#else // !defined(_WIN32)
+
+#include <sys/wait.h>
+#include <unistd.h>
+
+#endif
+
+static void execute_command(const std::vector<std::string>& cmd_line)
+{
+    std::print("cmd:");
+    for (const auto& s : cmd_line) {
+        std::print(" {}", s);
+    }
+    std::println();
+
+#ifdef _WIN32
+    TODO();
+#else
+    const char** args = new const char*[cmd_line.size() + 1];
+    for (usz i = 0; i < cmd_line.size(); ++i) {
+        args[i] = cmd_line.at(i).c_str();
+    }
+    args[cmd_line.size()] = nullptr;
+
+    pid_t child_pid = fork();
+    if (child_pid == -1) {
+        std::println(stderr, "error: fork failed: {}", std::strerror(errno));
+        std::exit(1);
+    } else if (child_pid == 0) { // child
+        ::execvp(cmd_line.at(0).c_str(), (char* const*)args);
+    } else { // parent
+        int wstatus = 0;
+        do {
+            pid_t w = ::waitpid(child_pid, &wstatus, WUNTRACED | WCONTINUED);
+            if (w == -1) {
+                std::println(stderr,
+                             "error: waitpid failed: {}",
+                             std::strerror(errno));
+                std::exit(1);
+            }
+
+            if (WIFEXITED(wstatus)) {
+                int exit_code = WEXITSTATUS(wstatus);
+                std::println("cmd: child process exited with {}",
+                             WEXITSTATUS(wstatus));
+                if (exit_code != 0)
+                    std::exit(exit_code);
+                break;
+            } else if (WIFSIGNALED(wstatus)) {
+                std::println("cmd: child process was killed with signal {}",
+                             WEXITSTATUS(wstatus));
+                std::exit(WEXITSTATUS(wstatus));
+            }
+        } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+    }
+#endif
+}
+
 static void
 compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 {
@@ -601,25 +670,27 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
         file << out;
         file.close();
 
-        s32 r = std::system(std::format("as --64 -o {} {}",
-                                        obj_path.string(),
-                                        asm_path.string())
-                                .c_str());
-        ASSERT(r == 0, "1");
+        const std::vector<std::string> asm_cmdline = {
+            "as", "--64", "-o", obj_path.string(), asm_path.string(),
+        };
+        execute_command(asm_cmdline);
 
-        std::stringstream ld_string;
-        ld_string << std::format(
-            "ld -no-pie {} -o {} -dynamic-linker "
-            "/lib64/ld-linux-x86-64.so.2 /lib64/crt1.o /lib64/crti.o "
-            "/lib64/crtn.o",
+        std::vector<std::string> ld_cmdline = {
+            "ld",
+            "-no-pie",
+            "-o",
+            base_path.string(),
             obj_path.string(),
-            base_path.string());
-
-        for (const auto& lib : ctx.linker_libs)
-            ld_string << " -l" << lib;
-
-        r = std::system(ld_string.str().c_str());
-        ASSERT(r == 0, "2");
+            "-dynamic-linker",
+            "/lib64/ld-linux-x86-64.so.2",
+            "/lib64/crt1.o",
+            "/lib64/crti.o",
+            "/lib64/crtn.o",
+        };
+        for (const auto& lib : ctx.linker_libs) {
+            ld_cmdline.push_back("-l" + lib);
+        }
+        execute_command(ld_cmdline);
     } break;
     default:
         std::unreachable();
