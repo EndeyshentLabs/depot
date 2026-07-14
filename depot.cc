@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <print>
 #include <ranges>
 #include <source_location>
@@ -102,15 +103,27 @@ struct Token {
         Close_Curly,
         Number,
         String,
+
+        Drop,
+        Dup,
+        Swap,
+        Over,
+        Plus,
+        Minus,
+        Mult,
+        Div,
     } kind;
     std::string text;
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
-    { "proc", Token::Kind::Proc },
-    { "link", Token::Kind::Link },
-    { "{", Token::Kind::Open_Curly },
-    { "}", Token::Kind::Close_Curly },
+    { "proc", Token::Kind::Proc },    { "link", Token::Kind::Link },
+    { "{", Token::Kind::Open_Curly }, { "}", Token::Kind::Close_Curly },
+    { "drop", Token::Kind::Drop },    { "dup", Token::Kind::Dup },
+    { "swap", Token::Kind::Swap },    { "over", Token::Kind::Over },
+
+    { "+", Token::Kind::Plus },       { "-", Token::Kind::Minus },
+    { "*", Token::Kind::Mult },       { "/", Token::Kind::Div },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -130,6 +143,22 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "numbers" : "a number";
     case Token::Kind::String:
         return plural ? "strings" : "a string";
+    case Token::Kind::Drop:
+        return plural ? "`drop` keywords" : "`drop` keyword";
+    case Token::Kind::Dup:
+        return plural ? "`drop` keywords" : "`drop` keyword";
+    case Token::Kind::Swap:
+        return plural ? "`drop` keywords" : "`drop` keyword";
+    case Token::Kind::Over:
+        return plural ? "`drop` keywords" : "`drop` keyword";
+    case Token::Kind::Plus:
+        return "`+`";
+    case Token::Kind::Minus:
+        return "`-`";
+    case Token::Kind::Mult:
+        return "`*`";
+    case Token::Kind::Div:
+        return "`/`";
     default:
         std::unreachable();
     }
@@ -286,6 +315,15 @@ struct Op {
         Proc_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
+
+        Drop, // no operand (0 as int64)
+        Dup, // no operand (0 as int64)
+        Swap, // no operand (0 as int64)
+        Over, // no operand (0 as int64)
+        Plus, // no operand (0 as int64)
+        Minus, // no operand (0 as int64)
+        Mult, // no operand (0 as int64)
+        Div, // no operand (0 as int64)
     } kind;
 
     As as;
@@ -304,6 +342,22 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Push_Int";
     case Op::Kind::Push_Str:
         return "Push_Str";
+    case Op::Kind::Drop:
+        return "Drop";
+    case Op::Kind::Dup:
+        return "Dup";
+    case Op::Kind::Swap:
+        return "Swap";
+    case Op::Kind::Over:
+        return "Over";
+    case Op::Kind::Plus:
+        return "Plus";
+    case Op::Kind::Minus:
+        return "Minus";
+    case Op::Kind::Mult:
+        return "Mult";
+    case Op::Kind::Div:
+        return "Div";
     default:
         std::unreachable();
     }
@@ -390,6 +444,8 @@ struct Parser {
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             parse_token(ops, toks.back());
+            std::println("DEBUG: {}z", toks.size());
+            std::println("DEBUG: {}k", human(toks.back().kind));
         }
         if (!expect(self, Token::Kind::Close_Curly)) {
             error(self.loc, "unclosed procedure block");
@@ -496,6 +552,86 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Push_Str, (int64_t)strings.size());
             strings.push_back(t.text);
             break;
+        case Token::Kind::Drop:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`drop` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Drop);
+            break;
+        case Token::Kind::Dup:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`dup` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Dup);
+            break;
+        case Token::Kind::Swap:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`swap` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Swap);
+            break;
+        case Token::Kind::Over:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`Over` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Over);
+            break;
+        case Token::Kind::Plus:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`+` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Plus);
+            break;
+        case Token::Kind::Minus:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`-` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Minus);
+            break;
+        case Token::Kind::Mult:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`*` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Mult);
+            break;
+        case Token::Kind::Div:
+            toks.pop_back();
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`/` is only allowed inside of "
+                      "procedure bodies");
+                return;
+            }
+            ops.emplace_back(t, Op::Kind::Div);
+            break;
         }
     }
 
@@ -591,7 +727,55 @@ static std::string compile(const Da_Thing& ctx)
             out << "\tpushq %rax\n";
             break;
         case Op::Kind::Push_Str:
-            out << "\tmovq $_depot_str" << std::get<int64_t>(op.as) << ", %rax\n";
+            out << "\tmovq $_depot_str" << std::get<int64_t>(op.as)
+                << ", %rax\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Drop:
+            out << "\tpopq %rax\n";
+            break;
+        case Op::Kind::Dup:
+            out << "\tpopq %rax\n";
+            out << "\tpushq %rax\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Swap:
+            out << "\tpopq %rax\n";
+            out << "\tpopq %rcx\n";
+            out << "\tpushq %rcx\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Over:
+            out << "\tpopq %rax\n";
+            out << "\tpopq %rcx\n";
+            out << "\tpushq %rax\n";
+            out << "\tpushq %rcx\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Plus:
+            out << "\tpopq %rax\n";
+            out << "\tpopq %rcx\n";
+            out << "\taddq %rcx, %rax\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Minus:
+            out << "\tpopq %rcx\n";
+            out << "\tpopq %rax\n";
+            out << "\tsubq %rcx, %rax\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Mult:
+            out << "\tpopq %rcx\n";
+            out << "\tpopq %rax\n";
+            out << "\tcqo\n";
+            out << "\timulq %rcx\n";
+            out << "\tpushq %rax\n";
+            break;
+        case Op::Kind::Div:
+            out << "\tpopq %rcx\n";
+            out << "\tpopq %rax\n";
+            out << "\tcqo\n";
+            out << "\tidivq %rcx\n";
             out << "\tpushq %rax\n";
             break;
         default:

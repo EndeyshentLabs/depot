@@ -3,4 +3,5 @@
 -Wextra
 -Werror=switch
 -Werror=switch-enum
+-Wimplicit-fallthrough
 -stdlib=libc++
