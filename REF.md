@@ -62,4 +62,4 @@ Signature `x y -- x*y`
 
 - `/` -- divide element below the top by the top element
 
-Signature `x y -- x*y`
+Signature `x y -- x/y`
