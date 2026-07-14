@@ -9,7 +9,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <print>
 #include <ranges>
 #include <source_location>
@@ -95,7 +94,7 @@ struct std::formatter<Location> {
 
 struct Token {
     Location loc;
-    enum class Kind {
+    enum struct Kind {
         Proc,
         Link,
         Ident,
@@ -309,7 +308,7 @@ struct Op {
     using As = std::variant<int64_t, std::string>;
 
     Token tok;
-    enum class Kind {
+    enum struct Kind {
         Proc_Start, // operand(str): procedure name
         Proc_Return, // operand(str): procedure name
         Proc_Call, // operand(str): procedure name
@@ -660,7 +659,7 @@ struct Parser {
 
 // {{{
 
-enum class Target {
+enum struct Target {
     x86_64_Gas,
 };
 
