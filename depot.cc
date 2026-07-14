@@ -404,34 +404,34 @@ struct Parser {
         std::println("{}: note: {}", loc, text);
     }
 
-    Token* expect(const Token& self, Token::Kind kind)
+    std::optional<Token> expect(const Token& self, Token::Kind kind)
     {
         if (toks.size() <= 0) {
             error(self.loc,
                   std::format("expected {}, but got nothing", human(kind)));
-            return nullptr;
+            return std::nullopt;
         }
 
-        Token* tok = &toks.back();
+        Token tok = toks.back();
         toks.pop_back();
 
-        if (tok->kind != kind) {
-            error(tok->loc,
+        if (tok.kind != kind) {
+            error(tok.loc,
                   std::format("expected {}, but got {}",
                               human(kind),
-                              human(tok->kind)));
-            return nullptr;
+                              human(tok.kind)));
+            return std::nullopt;
         }
 
-        return tok;
+        return std::make_optional(tok);
     }
 
     bool parse_proc(std::vector<Op>& ops)
     {
-        const auto& self = toks.back();
+        const auto self = toks.back();
         toks.pop_back();
 
-        const auto* proc_name = expect(self, Token::Kind::Ident);
+        const auto proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name) {
             note(self.loc, "for this procedure definition");
             return false;
@@ -467,7 +467,7 @@ struct Parser {
 
     bool parse_link()
     {
-        const auto& self = toks.back();
+        const auto self = toks.back();
         toks.pop_back();
 
         if (toks.size() <= 0) {
@@ -476,19 +476,14 @@ struct Parser {
             return false;
         }
 
-        const auto& lib_name = toks.back();
-        toks.pop_back();
+        const auto lib_name = expect(self, Token::Kind::String);
 
-        if (auto k = lib_name.kind; k != Token::Kind::String) {
-            error(lib_name.loc,
-                  std::format("expected library to link as {}, but got {}",
-                              human(Token::Kind::String),
-                              human(k)));
+        if (!lib_name) {
             note(self.loc, "for this link directive");
             return false;
         }
 
-        linker_libs.push_back(lib_name.text);
+        linker_libs.push_back(lib_name->text);
 
         return true;
     }
@@ -514,11 +509,11 @@ struct Parser {
             parse_link();
             break;
         case Token::Kind::Number: {
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "pushing numbers onto the stack only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
 
@@ -532,115 +527,128 @@ struct Parser {
                                 std::numeric_limits<decltype(num)>::max()));
                 return false;
             }
+
             ops.emplace_back(t, Op::Kind::Push_Int, num);
+            toks.pop_back();
         } break;
         case Token::Kind::Ident:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "calling procedures only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
 
             ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
+            toks.pop_back();
             break;
         case Token::Kind::Open_Curly:
         case Token::Kind::Close_Curly:
             error(t.loc, std::format("unexpected {}", human(t.kind)));
+            toks.pop_back();
             return false;
         case Token::Kind::String:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "pushing strings onto the stack only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
 
             ops.emplace_back(t, Op::Kind::Push_Int, (int64_t)t.text.size());
             ops.emplace_back(t, Op::Kind::Push_Str, (int64_t)strings.size());
             strings.push_back(t.text);
+            toks.pop_back();
             break;
         case Token::Kind::Drop:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`drop` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Drop);
+            toks.pop_back();
             break;
         case Token::Kind::Dup:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`dup` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Dup);
+            toks.pop_back();
             break;
         case Token::Kind::Swap:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`swap` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Swap);
+            toks.pop_back();
             break;
         case Token::Kind::Over:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`Over` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Over);
+            toks.pop_back();
             break;
         case Token::Kind::Plus:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`+` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Plus);
+            toks.pop_back();
             break;
         case Token::Kind::Minus:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`-` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Minus);
+            toks.pop_back();
             break;
         case Token::Kind::Mult:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`*` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Mult);
+            toks.pop_back();
             break;
         case Token::Kind::Div:
-            toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "`/` is only allowed inside of "
                       "procedure bodies");
+                toks.pop_back();
                 return false;
             }
             ops.emplace_back(t, Op::Kind::Div);
+            toks.pop_back();
             break;
         }
 
@@ -874,6 +882,11 @@ static void execute_command(const std::vector<std::string>& cmd_line)
             }
         } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
     }
+
+    if (args) {
+        delete[] args;
+        args = nullptr;
+    }
 #endif
 }
 
@@ -932,15 +945,14 @@ void usage(FILE* out, const char* program_name)
 int main(int argc, char** argv)
 {
     const char* program_name = argv[0];
-    argv++;
-    argc--;
 
-    if (argc != 1) {
+    if (argc != 2) {
         usage(stderr, program_name);
         return 1;
     }
 
-    const std::filesystem::path file_path { argv[0] };
+    const std::string argv1 { argv[1] };
+    const std::filesystem::path file_path = argv1;
 
     Lexer l { file_path };
     auto toks = l.lex();
