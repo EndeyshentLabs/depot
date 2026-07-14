@@ -702,7 +702,7 @@ static std::string compile(const Da_Thing& ctx)
             if (name == "main")
                 name = "_depot_main";
 
-            out << "\t.globl " << name << '\n';
+            // out << "\t.globl " << name << '\n';
             out << name << ":\n";
             out << "\tsubq $8, %rsp\n";
             out << "\tmovq %rsp, _depot_saved_rsp\n";
