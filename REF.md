@@ -5,13 +5,13 @@
 - signed 64 bit integer value
 
 ```depot
-1337 // STACK: int64
+1337 // STACK: 1337:int64
 ```
 
 - string
 
 ```depot
-"Hello, World!" // STACK: int64 ptr
+"Hello, World!" // STACK: length:int64 mem:ptr
 ```
 
 ## Built-in Words
