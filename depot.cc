@@ -189,7 +189,7 @@ struct Lexer {
         buffer << file.rdbuf();
         source = buffer.str();
 
-        loc.file_path = path.string();
+        loc.file_path = path;
         if (source.empty()) {
             ;
             std::println(stderr, "{}: error: Empty file", loc);
@@ -212,7 +212,14 @@ struct Lexer {
         }
         cursor++;
         c = source.at(cursor);
-        loc.col++;
+
+        if (c == '\n') {
+            loc.row++;
+            loc.col = 0;
+        } else {
+            loc.col++;
+        }
+
         return true;
     }
 
@@ -229,10 +236,8 @@ struct Lexer {
 
         do {
             Location start_loc = loc;
-            if (c == '\n') {
-                loc.row++;
-                loc.col = 0;
-            } else if (std::isspace(c)) {
+
+            if (std::isspace(c)) {
                 // ignore
             } else if (c == '/' && peek() == '/') {
                 do
@@ -881,8 +886,10 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
         const auto out = codegen::compile(ctx);
 
         const auto& base_path = input_path.stem();
-        const Fs_Path asm_path { base_path.string() + ".S" };
-        const Fs_Path obj_path { base_path.string() + ".o" };
+        const Fs_Path dotbuild { input_path.parent_path() / ".build" };
+        std::filesystem::create_directory(dotbuild);
+        const Fs_Path asm_path { dotbuild / (base_path.string() + ".S") };
+        const Fs_Path obj_path { dotbuild / (base_path.string() + ".o") };
         std::ofstream file { asm_path };
         ASSERT(file.is_open() && !file.fail(), "couldn't open file");
         file << out;
