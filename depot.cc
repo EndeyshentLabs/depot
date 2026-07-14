@@ -421,7 +421,7 @@ struct Parser {
         return tok;
     }
 
-    void parse_proc(std::vector<Op>& ops)
+    bool parse_proc(std::vector<Op>& ops)
     {
         const auto& self = toks.back();
         toks.pop_back();
@@ -429,13 +429,13 @@ struct Parser {
         const auto* proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name) {
             note(self.loc, "for this procedure definition");
-            return;
+            return false;
         }
 
         const auto& open_curly = expect(self, Token::Kind::Open_Curly);
         if (!open_curly) {
             note(self.loc, "for this procedure definition");
-            return;
+            return false;
         }
 
         procs.emplace(proc_name->text, Proc { self, proc_name->text });
@@ -443,19 +443,24 @@ struct Parser {
         ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
-            parse_token(ops, toks.back());
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this procedure body");
+                return false;
+            }
         }
         if (!expect(self, Token::Kind::Close_Curly)) {
             error(self.loc, "unclosed procedure block");
             note(open_curly->loc, "opened here");
-            return;
+            return false;
         }
         ops.emplace_back(self, Op::Kind::Proc_Return, proc_name->text);
 
         current_proc_name = "";
+
+        return true;
     }
 
-    void parse_link()
+    bool parse_link()
     {
         const auto& self = toks.back();
         toks.pop_back();
@@ -463,7 +468,7 @@ struct Parser {
         if (toks.size() <= 0) {
             error(self.loc,
                   "expected library to link as string, but got nothing");
-            return;
+            return false;
         }
 
         const auto& lib_name = toks.back();
@@ -475,13 +480,15 @@ struct Parser {
                               human(Token::Kind::String),
                               human(k)));
             note(self.loc, "for this link directive");
-            return;
+            return false;
         }
 
         linker_libs.push_back(lib_name.text);
+
+        return true;
     }
 
-    void parse_token(std::vector<Op>& ops, const Token& t)
+    bool parse_token(std::vector<Op>& ops, const Token& t)
     {
         switch (t.kind) {
         case Token::Kind::Proc:
@@ -489,7 +496,7 @@ struct Parser {
                 error(t.loc,
                       "defining procedures allowed only in global scope");
                 toks.pop_back();
-                return;
+                return false;
             }
             parse_proc(ops);
             break;
@@ -497,7 +504,7 @@ struct Parser {
             if (!current_proc_name.empty()) {
                 error(t.loc, "`link` directive allowed only in global scope");
                 toks.pop_back();
-                return;
+                return false;
             }
             parse_link();
             break;
@@ -507,7 +514,7 @@ struct Parser {
                 error(t.loc,
                       "pushing numbers onto the stack only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
 
             errno = 0;
@@ -518,7 +525,7 @@ struct Parser {
                     std::format("number out of range (accepted range [{}, {}])",
                                 std::numeric_limits<decltype(num)>::min(),
                                 std::numeric_limits<decltype(num)>::max()));
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Push_Int, num);
         } break;
@@ -528,7 +535,7 @@ struct Parser {
                 error(t.loc,
                       "calling procedures only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
 
             ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
@@ -536,14 +543,14 @@ struct Parser {
         case Token::Kind::Open_Curly:
         case Token::Kind::Close_Curly:
             error(t.loc, std::format("unexpected {}", human(t.kind)));
-            return;
+            return false;
         case Token::Kind::String:
             toks.pop_back();
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "pushing strings onto the stack only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
 
             ops.emplace_back(t, Op::Kind::Push_Int, (int64_t)t.text.size());
@@ -556,7 +563,7 @@ struct Parser {
                 error(t.loc,
                       "`drop` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Drop);
             break;
@@ -566,7 +573,7 @@ struct Parser {
                 error(t.loc,
                       "`dup` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Dup);
             break;
@@ -576,7 +583,7 @@ struct Parser {
                 error(t.loc,
                       "`swap` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Swap);
             break;
@@ -586,7 +593,7 @@ struct Parser {
                 error(t.loc,
                       "`Over` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Over);
             break;
@@ -596,7 +603,7 @@ struct Parser {
                 error(t.loc,
                       "`+` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Plus);
             break;
@@ -606,7 +613,7 @@ struct Parser {
                 error(t.loc,
                       "`-` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Minus);
             break;
@@ -616,7 +623,7 @@ struct Parser {
                 error(t.loc,
                       "`*` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Mult);
             break;
@@ -626,11 +633,13 @@ struct Parser {
                 error(t.loc,
                       "`/` is only allowed inside of "
                       "procedure bodies");
-                return;
+                return false;
             }
             ops.emplace_back(t, Op::Kind::Div);
             break;
         }
+
+        return true;
     }
 
     Da_Thing parse()
