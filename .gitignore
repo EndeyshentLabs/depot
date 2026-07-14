@@ -1,4 +1,6 @@
 depot
+depot-rel
+depot-dbg
 *.[oaSs]
 a.out
 /simple
@@ -6,3 +8,4 @@ a.out
 *.exe
 *.lib
 *.dll
+.build/
