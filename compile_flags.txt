@@ -5,3 +5,4 @@
 -Werror=switch-enum
 -Wimplicit-fallthrough
 -stdlib=libc++
+-DDEPOT_DEBUG

@@ -194,7 +194,8 @@ struct Lexer {
             ;
             std::println(stderr, "{}: error: Empty file", loc);
             std::println("{}: note: consider adding procedure main", loc);
-            std::println("\tproc main {{ 0 }} // minimal program");
+            std::println("|\t// minimal program:");
+            std::println("|\tlink \"c\"\n|\tproc main {{ 0 }}");
             std::exit(2);
         }
         c = source.at(cursor);
@@ -443,8 +444,6 @@ struct Parser {
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             parse_token(ops, toks.back());
-            std::println("DEBUG: {}z", toks.size());
-            std::println("DEBUG: {}k", human(toks.back().kind));
         }
         if (!expect(self, Token::Kind::Close_Curly)) {
             error(self.loc, "unclosed procedure block");
@@ -930,14 +929,17 @@ int main(int argc, char** argv)
     Lexer l { file_path };
     auto toks = l.lex();
 
+#ifdef DEPOT_DEBUG
     std::println("TOKS:");
     for (const auto& t : toks) {
         std::println("{}: {} {:?}", t.loc, human(t.kind), t.text);
     }
+#endif
 
     Parser p { toks };
     auto o = p.parse();
 
+#ifdef DEPOT_DEBUG
     std::println("OPS:");
     for (const auto& op : o.ops) {
         std::print("{}: {}", op.tok.loc, human(op.kind));
@@ -951,6 +953,7 @@ int main(int argc, char** argv)
             std::println();
         }
     }
+#endif
 
     compile(Target::x86_64_Gas, file_path, o);
 }
