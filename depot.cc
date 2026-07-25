@@ -19,6 +19,17 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+
+#error "windows platform is not supported"
+
+#else // !defined(_WIN32)
+
+#include <sys/wait.h>
+#include <unistd.h>
+
+#endif // #ifdef _WIN32
+
 // {{{
 using u8 = std::uint8_t;
 using u16 = std::uint16_t;
@@ -45,6 +56,62 @@ using f64 = double;
             std::abort();                                                      \
         }                                                                      \
     } while (0)
+
+static void execute_command(const std::vector<std::string>& cmd_line)
+{
+    std::print("cmd:");
+    for (const auto& s : cmd_line) {
+        std::print(" {}", s);
+    }
+    std::println();
+
+#ifdef _WIN32
+    TODO();
+#else
+    const char** args = new const char*[cmd_line.size() + 1];
+    for (usz i = 0; i < cmd_line.size(); ++i) {
+        args[i] = cmd_line.at(i).c_str();
+    }
+    args[cmd_line.size()] = nullptr;
+
+    ::pid_t child_pid = ::fork();
+    if (child_pid == -1) {
+        std::println(stderr, "error: fork failed: {}", std::strerror(errno));
+        std::exit(1);
+    } else if (child_pid == 0) { // child
+        ::execvp(cmd_line.at(0).c_str(), (char* const*)args);
+    } else { // parent
+        int wstatus = 0;
+        do {
+            pid_t w = ::waitpid(child_pid, &wstatus, WUNTRACED | WCONTINUED);
+            if (w == -1) {
+                std::println(stderr,
+                             "error: waitpid failed: {}",
+                             std::strerror(errno));
+                std::exit(1);
+            }
+
+            if (WIFEXITED(wstatus)) {
+                int exit_code = WEXITSTATUS(wstatus);
+                std::println("cmd: child process exited with {}",
+                             WEXITSTATUS(wstatus));
+                if (exit_code != 0)
+                    std::exit(exit_code);
+                break;
+            } else if (WIFSIGNALED(wstatus)) {
+                std::println("cmd: child process was killed with signal {}",
+                             WEXITSTATUS(wstatus));
+                std::exit(WEXITSTATUS(wstatus));
+            }
+        } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+    }
+
+    if (args) {
+        delete[] args;
+        args = nullptr;
+    }
+#endif
+}
 
 [[noreturn]] void todo(std::string_view text,
                        const std::source_location sl
@@ -686,227 +753,169 @@ struct Parser {
 
 // {{{
 
+// TODO: should this be inside of codegen namespace?
 enum struct Target {
     x86_64_Gas,
 };
 
 namespace codegen {
 
-static std::string compile(const Da_Thing& ctx)
-{
-    std::stringstream out;
+namespace x86_64 {
 
-    out << ".text\n";
+    static std::string compile(const Da_Thing& ctx)
+    {
+        std::stringstream out;
 
-    out << ".globl main\n";
-    out << "main:\n";
-    out << "\tsubq $8, %rsp\n";
-    out << "\tmovq $_depot_stack_end, %r12\n";
-    out << "\tmovq %rsp, _depot_saved_rsp\n";
-    out << "\tcall _depot_main\n";
-    out << "\taddq $8, %rsp\n";
-    out << "\tmovq (%r12), %rax\n";
-    out << "\tret\n";
+        out << ".text\n";
 
-    usz ip = 0;
-    for (const auto& op : ctx.ops) {
-        out << "op_" << ip++ << ": ";
+        out << ".globl main\n";
+        out << "main:\n";
+        out << "\tsubq $8, %rsp\n";
+        out << "\tmovq $_depot_stack_end, %r12\n";
+        out << "\tmovq %rsp, _depot_saved_rsp\n";
+        out << "\tcall _depot_main\n";
+        out << "\taddq $8, %rsp\n";
+        out << "\tmovq (%r12), %rax\n";
+        out << "\tret\n";
 
-        out << std::format("// {}: {}", op.tok.loc, human(op.kind));
-        static_assert(std::variant_size_v<Op::As> == 2,
-                      "Exhaustive handling of Op::As variants");
-        if (const auto* num = std::get_if<int64_t>(&op.as)) {
-            out << std::format(" {}\n", *num);
-        } else if (const auto* str = std::get_if<std::string>(&op.as)) {
-            out << std::format(" {:?}\n", *str);
-        } else {
-            out << '\n';
-        }
+        usz ip = 0;
+        for (const auto& op : ctx.ops) {
+            out << "op_" << ip++ << ": ";
 
-        switch (op.kind) {
-        case Op::Kind::Proc_Start: {
-            auto name = std::get<std::string>(op.as);
-            if (name == "main")
-                name = "_depot_main";
-
-            // out << "\t.globl " << name << '\n';
-            out << name << ":\n";
-            out << "\tsubq $8, %rsp\n";
-            out << "\tmovq %rsp, _depot_saved_rsp\n";
-            out << "\tmovq %r12, %rsp\n";
-        } break;
-        case Op::Kind::Proc_Return:
-            out << "\tmovq %rsp, %r12\n";
-            out << "\tmovq _depot_saved_rsp, %rsp\n";
-            out << "\taddq $8, %rsp\n";
-            out << "\tret\n";
-            break;
-        case Op::Kind::Proc_Call:
-            out << "\tmovq %rsp, %r12\n";
-            out << "\tmovq _depot_saved_rsp, %rsp\n";
-            out << "\tcall " << std::get<std::string>(op.as) << '\n';
-            out << "\tmovq %rsp, _depot_saved_rsp\n";
-            out << "\tmovq %r12, %rsp\n";
-            break;
-        case Op::Kind::Push_Int:
-            out << "\tmovq $" << std::get<int64_t>(op.as) << ", %rax\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Push_Str:
-            out << "\tmovq $_depot_str" << std::get<int64_t>(op.as)
-                << ", %rax\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Drop:
-            out << "\tpopq %rax\n";
-            break;
-        case Op::Kind::Dup:
-            out << "\tpopq %rax\n";
-            out << "\tpushq %rax\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Swap:
-            out << "\tpopq %rax\n";
-            out << "\tpopq %rcx\n";
-            out << "\tpushq %rcx\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Over:
-            out << "\tpopq %rax\n";
-            out << "\tpopq %rcx\n";
-            out << "\tpushq %rax\n";
-            out << "\tpushq %rcx\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Plus:
-            out << "\tpopq %rax\n";
-            out << "\tpopq %rcx\n";
-            out << "\taddq %rcx, %rax\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Minus:
-            out << "\tpopq %rcx\n";
-            out << "\tpopq %rax\n";
-            out << "\tsubq %rcx, %rax\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Mult:
-            out << "\tpopq %rcx\n";
-            out << "\tpopq %rax\n";
-            out << "\tcqo\n";
-            out << "\timulq %rcx\n";
-            out << "\tpushq %rax\n";
-            break;
-        case Op::Kind::Div:
-            out << "\tpopq %rcx\n";
-            out << "\tpopq %rax\n";
-            out << "\tcqo\n";
-            out << "\tidivq %rcx\n";
-            out << "\tpushq %rax\n";
-            break;
-        default:
-            std::unreachable();
-        }
-    }
-
-    out << ".data\n";
-    for (usz i = 0; i < ctx.strings.size(); ++i) {
-        const auto& str = ctx.strings.at(i);
-        out << "_depot_str" << i << ": .byte";
-        for (const u8 c : str) {
-            out << " 0x" << std::hex << (u16)c << ',';
-        }
-        out << " 0x0\n";
-    }
-
-    out << ".bss\n";
-    out << "_depot_saved_rsp: .skip 8\n";
-    out << "_depot_stack_bottom: .skip 524288\n";
-    out << "_depot_stack_end:\n";
-
-    return out.str();
-}
-
-}
-
-#ifdef _WIN32
-
-#error "windows platform is not supported"
-
-#else // !defined(_WIN32)
-
-#include <sys/wait.h>
-#include <unistd.h>
-
-#endif
-
-static void execute_command(const std::vector<std::string>& cmd_line)
-{
-    std::print("cmd:");
-    for (const auto& s : cmd_line) {
-        std::print(" {}", s);
-    }
-    std::println();
-
-#ifdef _WIN32
-    TODO();
-#else
-    const char** args = new const char*[cmd_line.size() + 1];
-    for (usz i = 0; i < cmd_line.size(); ++i) {
-        args[i] = cmd_line.at(i).c_str();
-    }
-    args[cmd_line.size()] = nullptr;
-
-    pid_t child_pid = fork();
-    if (child_pid == -1) {
-        std::println(stderr, "error: fork failed: {}", std::strerror(errno));
-        std::exit(1);
-    } else if (child_pid == 0) { // child
-        ::execvp(cmd_line.at(0).c_str(), (char* const*)args);
-    } else { // parent
-        int wstatus = 0;
-        do {
-            pid_t w = ::waitpid(child_pid, &wstatus, WUNTRACED | WCONTINUED);
-            if (w == -1) {
-                std::println(stderr,
-                             "error: waitpid failed: {}",
-                             std::strerror(errno));
-                std::exit(1);
+            out << std::format("// {}: {}", op.tok.loc, human(op.kind));
+            static_assert(std::variant_size_v<Op::As> == 2,
+                          "Exhaustive handling of Op::As variants");
+            if (const auto* num = std::get_if<int64_t>(&op.as)) {
+                out << std::format(" {}\n", *num);
+            } else if (const auto* str = std::get_if<std::string>(&op.as)) {
+                out << std::format(" {:?}\n", *str);
+            } else {
+                out << '\n';
             }
 
-            if (WIFEXITED(wstatus)) {
-                int exit_code = WEXITSTATUS(wstatus);
-                std::println("cmd: child process exited with {}",
-                             WEXITSTATUS(wstatus));
-                if (exit_code != 0)
-                    std::exit(exit_code);
+            switch (op.kind) {
+            case Op::Kind::Proc_Start: {
+                auto name = std::get<std::string>(op.as);
+                if (name == "main")
+                    name = "_depot_main";
+
+                // out << "\t.globl " << name << '\n';
+                out << name << ":\n";
+                out << "\tsubq $8, %rsp\n";
+                out << "\tmovq %rsp, _depot_saved_rsp\n";
+                out << "\tmovq %r12, %rsp\n";
+            } break;
+            case Op::Kind::Proc_Return:
+                out << "\tmovq %rsp, %r12\n";
+                out << "\tmovq _depot_saved_rsp, %rsp\n";
+                out << "\taddq $8, %rsp\n";
+                out << "\tret\n";
                 break;
-            } else if (WIFSIGNALED(wstatus)) {
-                std::println("cmd: child process was killed with signal {}",
-                             WEXITSTATUS(wstatus));
-                std::exit(WEXITSTATUS(wstatus));
+            case Op::Kind::Proc_Call:
+                out << "\tmovq %rsp, %r12\n";
+                out << "\tmovq _depot_saved_rsp, %rsp\n";
+                out << "\tcall " << std::get<std::string>(op.as) << '\n';
+                out << "\tmovq %rsp, _depot_saved_rsp\n";
+                out << "\tmovq %r12, %rsp\n";
+                break;
+            case Op::Kind::Push_Int:
+                out << "\tmovq $" << std::get<int64_t>(op.as) << ", %rax\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Push_Str:
+                out << "\tmovq $_depot_str" << std::get<int64_t>(op.as)
+                    << ", %rax\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Drop:
+                out << "\tpopq %rax\n";
+                break;
+            case Op::Kind::Dup:
+                out << "\tpopq %rax\n";
+                out << "\tpushq %rax\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Swap:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tpushq %rcx\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Over:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tpushq %rax\n";
+                out << "\tpushq %rcx\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Plus:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\taddq %rcx, %rax\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Minus:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tsubq %rcx, %rax\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Mult:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcqo\n";
+                out << "\timulq %rcx\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Div:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcqo\n";
+                out << "\tidivq %rcx\n";
+                out << "\tpushq %rax\n";
+                break;
+            default:
+                std::unreachable();
             }
-        } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+        }
+
+        out << ".data\n";
+        for (usz i = 0; i < ctx.strings.size(); ++i) {
+            const auto& str = ctx.strings.at(i);
+            out << "_depot_str" << i << ": .byte";
+            for (const u8 c : str) {
+                out << " 0x" << std::hex << (u16)c << ',';
+            }
+            out << " 0x0\n";
+        }
+
+        out << ".bss\n";
+        out << "_depot_saved_rsp: .skip 8\n";
+        out << "_depot_stack_bottom: .skip 524288\n";
+        out << "_depot_stack_end:\n";
+
+        return out.str();
     }
 
-    if (args) {
-        delete[] args;
-        args = nullptr;
-    }
-#endif
-}
+} // namespace x86_64
+
+} // namespace codegen
 
 static void
 compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 {
     using Fs_Path = std::filesystem::path;
+
+    static constexpr std::string_view build_dir = ".build";
+
+    const auto base_path = input_path.stem();
+    const Fs_Path dotbuild { input_path.parent_path() / build_dir };
+    std::filesystem::create_directory(dotbuild);
+
     switch (tgt) {
     case Target::x86_64_Gas: {
-        const auto out = codegen::compile(ctx);
+        const auto out = codegen::x86_64::compile(ctx);
 
-        const auto& base_path = input_path.stem();
-        const Fs_Path dotbuild { input_path.parent_path() / ".build" };
-        std::filesystem::create_directory(dotbuild);
         const Fs_Path asm_path { dotbuild / (base_path.string() + ".S") };
         const Fs_Path obj_path { dotbuild / (base_path.string() + ".o") };
         std::ofstream file { asm_path };
@@ -931,9 +940,10 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
             "/lib64/crti.o",
             "/lib64/crtn.o",
         };
-        for (const auto& lib : ctx.linker_libs) {
+
+        for (const auto& lib : ctx.linker_libs)
             ld_cmdline.push_back("-l" + lib);
-        }
+
         execute_command(ld_cmdline);
     } break;
     default:
