@@ -532,16 +532,22 @@ struct Parser {
             toks.pop_back();
         } break;
         case Token::Kind::Ident:
-            if (current_proc_name.empty()) {
-                error(t.loc,
-                      "calling procedures only allowed inside of "
-                      "procedure bodies");
+            if (procs.contains(t.text)) { // func call
+                if (current_proc_name.empty()) {
+                    error(t.loc,
+                          "calling procedures only allowed inside of "
+                          "procedure bodies");
+                    toks.pop_back();
+                    return false;
+                }
+
+                ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
+                toks.pop_back();
+            } else {
+                error(t.loc, std::format("unexpected identifier `{}`", t.text));
                 toks.pop_back();
                 return false;
             }
-
-            ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
-            toks.pop_back();
             break;
         case Token::Kind::Open_Curly:
         case Token::Kind::Close_Curly:
