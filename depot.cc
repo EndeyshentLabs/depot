@@ -170,6 +170,9 @@ struct Token {
         Number,
         String,
 
+        Extern,
+        Semicolon, // TODO: better name?
+
         Drop,
         Dup,
         Swap,
@@ -183,13 +186,14 @@ struct Token {
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
-    { "proc", Token::Kind::Proc },    { "link", Token::Kind::Link },
-    { "{", Token::Kind::Open_Curly }, { "}", Token::Kind::Close_Curly },
-    { "drop", Token::Kind::Drop },    { "dup", Token::Kind::Dup },
-    { "swap", Token::Kind::Swap },    { "over", Token::Kind::Over },
+    { "proc", Token::Kind::Proc },     { "link", Token::Kind::Link },
+    { "{", Token::Kind::Open_Curly },  { "}", Token::Kind::Close_Curly },
+    { "drop", Token::Kind::Drop },     { "dup", Token::Kind::Dup },
+    { "swap", Token::Kind::Swap },     { "over", Token::Kind::Over },
 
-    { "+", Token::Kind::Plus },       { "-", Token::Kind::Minus },
-    { "*", Token::Kind::Mult },       { "/", Token::Kind::Div },
+    { "+", Token::Kind::Plus },        { "-", Token::Kind::Minus },
+    { "*", Token::Kind::Mult },        { "/", Token::Kind::Div },
+    { "extern", Token::Kind::Extern }, { ";", Token::Kind::Semicolon },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -209,6 +213,10 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "numbers" : "a number";
     case Token::Kind::String:
         return plural ? "strings" : "a string";
+    case Token::Kind::Extern:
+        return plural ? "`extern` keywords" : "`extern` keyword";
+    case Token::Kind::Semicolon:
+        return ";";
     case Token::Kind::Drop:
         return plural ? "`drop` keywords" : "`drop` keyword";
     case Token::Kind::Dup:
@@ -378,13 +386,14 @@ struct Lexer {
 // {{{
 
 struct Op {
-    using As = std::variant<int64_t, std::string>;
+    using As = std::variant<s64, std::string>;
 
     Token tok;
     enum struct Kind {
         Proc_Start, // operand(str): procedure name
         Proc_Return, // operand(str): procedure name
         Proc_Call, // operand(str): procedure name
+        Extern_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
 
@@ -410,6 +419,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Proc_Return";
     case Op::Kind::Proc_Call:
         return "Proc_Call";
+    case Op::Kind::Extern_Call:
+        return "Extern_Call";
     case Op::Kind::Push_Int:
         return "Push_Int";
     case Op::Kind::Push_Str:
@@ -435,15 +446,23 @@ static constexpr std::string_view human(Op::Kind kind)
     }
 }
 
+struct Proc {
+    Token tok;
+    std::string name;
+};
+
+struct Extern_Proc {
+    Token tok;
+    std::string name;
+    u64 arity;
+    // TODO: calling convention
+};
+
 struct Da_Thing {
     std::vector<std::string> linker_libs;
     std::vector<Op> ops;
     std::vector<std::string> strings;
-};
-
-struct Proc {
-    Token tok;
-    std::string name;
+    std::unordered_map<std::string, Extern_Proc> extern_procs;
 };
 
 struct Parser {
@@ -451,6 +470,7 @@ struct Parser {
     bool has_error { false };
     std::vector<std::string> linker_libs;
     std::unordered_map<std::string, Proc> procs;
+    std::unordered_map<std::string, Extern_Proc> extern_procs;
     std::string_view current_proc_name { };
     std::vector<std::string> strings;
 
@@ -585,7 +605,7 @@ struct Parser {
             }
 
             errno = 0;
-            const int64_t num = std::strtoll(t.text.c_str(), nullptr, 10);
+            const s64 num = std::strtoll(t.text.c_str(), nullptr, 10);
             if (errno == ERANGE) {
                 error(
                     t.loc,
@@ -610,6 +630,17 @@ struct Parser {
 
                 ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
                 toks.pop_back();
+            } else if (extern_procs.contains(t.text)) { // extern call
+                if (current_proc_name.empty()) {
+                    error(t.loc,
+                          "calling external procedures only allowed inside of "
+                          "procedure bodies");
+                    toks.pop_back();
+                    return false;
+                }
+
+                ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
+                toks.pop_back();
             } else {
                 error(t.loc, std::format("unexpected identifier `{}`", t.text));
                 toks.pop_back();
@@ -617,6 +648,7 @@ struct Parser {
             }
             break;
         case Token::Kind::Open_Curly:
+        case Token::Kind::Semicolon:
         case Token::Kind::Close_Curly:
             error(t.loc, std::format("unexpected {}", human(t.kind)));
             toks.pop_back();
@@ -630,11 +662,77 @@ struct Parser {
                 return false;
             }
 
-            ops.emplace_back(t, Op::Kind::Push_Int, (int64_t)t.text.size());
-            ops.emplace_back(t, Op::Kind::Push_Str, (int64_t)strings.size());
+            ops.emplace_back(t, Op::Kind::Push_Int, (s64)t.text.size());
+            ops.emplace_back(t, Op::Kind::Push_Str, (s64)strings.size());
             strings.push_back(t.text);
             toks.pop_back();
             break;
+        case Token::Kind::Extern: {
+            toks.pop_back();
+            if (!current_proc_name.empty()) {
+                error(t.loc,
+                      "`extern` constructions only allowed in global scope");
+                toks.pop_back();
+                return false;
+            }
+            const auto prockwd = expect(t, Token::Kind::Proc);
+            if (!prockwd.has_value()) {
+                note(t.loc, "for this `extern` construction");
+                return false;
+            }
+
+            const auto proc_name = expect(t, Token::Kind::Ident);
+            if (!proc_name.has_value()) {
+                note(t.loc, "as procedure name for this `extern` construction");
+                return false;
+            }
+
+            const auto arity = expect(t, Token::Kind::Number);
+            if (!arity.has_value()) {
+                note(t.loc, "as arity for this `extern` construction");
+                return false;
+            }
+
+            // TODO
+            errno = 0;
+            const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
+            if (errno == ERANGE) {
+                error(
+                    arity->loc,
+                    std::format("number out of range (accepted range [{}, {}])",
+                                std::numeric_limits<decltype(num)>::min(),
+                                std::numeric_limits<decltype(num)>::max()));
+                return false;
+            }
+
+            if (!expect(t, Token::Kind::Semicolon).has_value()) {
+                note(t.loc, "to end this `extern` construction");
+                return false;
+            }
+
+            if (extern_procs.contains(proc_name->text)) {
+                error(t.loc,
+                      std::format("redefinition of extern procedure \"{}\"",
+                                  proc_name->text));
+                note(extern_procs.at(proc_name->text).tok.loc,
+                     "previously defined here");
+                return false;
+            }
+
+            if (procs.contains(proc_name->text)) {
+                error(t.loc,
+                      std::format(
+                          "external procedure name shadows procedure \"{}\"",
+                          proc_name->text));
+                note(procs.at(proc_name->text).tok.loc,
+                     "previously defined here");
+                return false;
+            }
+
+            extern_procs.emplace(
+                proc_name->text,
+                Extern_Proc { t, proc_name->text, static_cast<u64>(num) });
+        } break;
         case Token::Kind::Drop:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -745,6 +843,7 @@ struct Parser {
             .linker_libs = linker_libs,
             .ops = ops,
             .strings = strings,
+            .extern_procs = extern_procs,
         };
     }
 };
@@ -785,7 +884,7 @@ namespace x86_64 {
             out << std::format("// {}: {}", op.tok.loc, human(op.kind));
             static_assert(std::variant_size_v<Op::As> == 2,
                           "Exhaustive handling of Op::As variants");
-            if (const auto* num = std::get_if<int64_t>(&op.as)) {
+            if (const auto* num = std::get_if<s64>(&op.as)) {
                 out << std::format(" {}\n", *num);
             } else if (const auto* str = std::get_if<std::string>(&op.as)) {
                 out << std::format(" {:?}\n", *str);
@@ -818,12 +917,59 @@ namespace x86_64 {
                 out << "\tmovq %rsp, _depot_saved_rsp\n";
                 out << "\tmovq %r12, %rsp\n";
                 break;
+            case Op::Kind::Extern_Call: { // TODO: calling convention
+                const auto proc_name = std::get<std::string>(op.as);
+                ASSERT(ctx.extern_procs.contains(proc_name),
+                       "Compiler Bug: Extern_Call in Codegen, but the name "
+                       "wasn't registered by parser");
+                const auto proc = ctx.extern_procs.at(proc_name);
+
+                switch (proc.arity) {
+                default:
+                    std::println(stderr,
+                                 "{}: error: incorrect arity {} for x86_64 "
+                                 "target, should be [0, 6]",
+                                 op.tok.loc,
+                                 proc.arity);
+                    std::println("{}: note: this extern procedure",
+                                 proc.tok.loc);
+                    std::exit(5);
+                    break;
+                case 6:
+                    out << "\tpopq %r9\n";
+                    [[fallthrough]];
+                case 5:
+                    out << "\tpopq %r8\n";
+                    [[fallthrough]];
+                case 4:
+                    out << "\tpopq %rcx\n";
+                    [[fallthrough]];
+                case 3:
+                    out << "\tpopq %rdx\n";
+                    [[fallthrough]];
+                case 2:
+                    out << "\tpopq %rsi\n";
+                    [[fallthrough]];
+                case 1:
+                    out << "\tpopq %rdi\n";
+                    [[fallthrough]];
+                case 0:
+                    break;
+                }
+
+                out << "\tmovq %rsp, %r12\n";
+                out << "\tmovq _depot_saved_rsp, %rsp\n";
+                out << "\tcall " << proc_name << '\n';
+                out << "\tmovq %rsp, _depot_saved_rsp\n";
+                out << "\tmovq %r12, %rsp\n";
+                out << "\tpushq %rax\n";
+            } break;
             case Op::Kind::Push_Int:
-                out << "\tmovq $" << std::get<int64_t>(op.as) << ", %rax\n";
+                out << "\tmovq $" << std::get<s64>(op.as) << ", %rax\n";
                 out << "\tpushq %rax\n";
                 break;
             case Op::Kind::Push_Str:
-                out << "\tmovq $_depot_str" << std::get<int64_t>(op.as)
+                out << "\tmovq $_depot_str" << std::get<s64>(op.as)
                     << ", %rax\n";
                 out << "\tpushq %rax\n";
                 break;
@@ -838,8 +984,8 @@ namespace x86_64 {
             case Op::Kind::Swap:
                 out << "\tpopq %rax\n";
                 out << "\tpopq %rcx\n";
-                out << "\tpushq %rcx\n";
                 out << "\tpushq %rax\n";
+                out << "\tpushq %rcx\n";
                 break;
             case Op::Kind::Over:
                 out << "\tpopq %rax\n";
@@ -934,6 +1080,12 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
             "-o",
             base_path.string(),
             obj_path.string(),
+            "-L.",
+            "-Llib",
+            "-rpath",
+            "$ORIGIN",
+            "-rpath",
+            "$ORIGIN/lib",
             "-dynamic-linker",
             "/lib64/ld-linux-x86-64.so.2",
             "/lib64/crt1.o",
@@ -989,7 +1141,7 @@ int main(int argc, char** argv)
         std::print("{}: {}", op.tok.loc, human(op.kind));
         static_assert(std::variant_size_v<Op::As> == 2,
                       "Exhaustive handling of Op::As variants");
-        if (const auto* num = std::get_if<int64_t>(&op.as)) {
+        if (const auto* num = std::get_if<s64>(&op.as)) {
             std::println(" {}", *num);
         } else if (const auto* str = std::get_if<std::string>(&op.as)) {
             std::println(" {:?}", *str);
