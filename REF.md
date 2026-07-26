@@ -32,6 +32,12 @@ Passed as `-l<lib>` to linker
 link "<lib>"
 ```
 
+- `extern` -- define an external procedure
+
+```depot
+extern proc <symbol-name> <arity> ;
+```
+
 - `drop` -- remove top element
 
 Signature: `x --`
