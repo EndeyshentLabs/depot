@@ -990,9 +990,9 @@ namespace x86_64 {
             case Op::Kind::Over:
                 out << "\tpopq %rax\n";
                 out << "\tpopq %rcx\n";
-                out << "\tpushq %rax\n";
                 out << "\tpushq %rcx\n";
                 out << "\tpushq %rax\n";
+                out << "\tpushq %rcx\n";
                 break;
             case Op::Kind::Plus:
                 out << "\tpopq %rax\n";
