@@ -530,22 +530,6 @@ struct Parser {
             return false;
         }
 
-        procs.emplace(proc_name->text, Proc { self, proc_name->text });
-        current_proc_name = proc_name->text;
-        ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
-
-        while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
-            if (!parse_token(ops, toks.back())) {
-                note(self.loc, "inside of this procedure body");
-                return false;
-            }
-        }
-        if (!expect(self, Token::Kind::Close_Curly)) {
-            error(self.loc, "unclosed procedure block");
-            note(open_curly->loc, "opened here");
-            return false;
-        }
-
         if (procs.contains(proc_name->text)) {
             error(self.loc,
                   std::format("redefinition of procedure \"{}\"",
@@ -561,6 +545,22 @@ struct Parser {
                             proc_name->text));
             note(extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
+            return false;
+        }
+
+        procs.emplace(proc_name->text, Proc { self, proc_name->text });
+        current_proc_name = proc_name->text;
+        ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
+
+        while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this procedure body");
+                return false;
+            }
+        }
+        if (!expect(self, Token::Kind::Close_Curly)) {
+            error(self.loc, "unclosed procedure block");
+            note(open_curly->loc, "opened here");
             return false;
         }
 
