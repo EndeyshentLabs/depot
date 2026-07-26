@@ -646,7 +646,8 @@ struct Parser {
             return false;
         }
 
-        // TODO
+        // TODO: calling convention
+
         errno = 0;
         const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
         if (errno == ERANGE) {
