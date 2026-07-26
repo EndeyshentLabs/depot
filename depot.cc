@@ -11,6 +11,7 @@
 #include <fstream>
 #include <print>
 #include <ranges>
+#include <set>
 #include <source_location>
 #include <span>
 #include <sstream>
@@ -506,6 +507,35 @@ struct Parser {
             error(tok.loc,
                   std::format("expected {}, but got {}",
                               human(kind),
+                              human(tok.kind)));
+            return std::nullopt;
+        }
+
+        return std::make_optional(tok);
+    }
+
+    std::optional<Token> expect(const Token& self, std::set<Token::Kind> kinds)
+    {
+        const auto kind_strings
+            = kinds
+            | std::ranges::views::transform(
+                  [](Token::Kind k) -> std::string_view { return human(k); });
+        const auto ored_kinds = std::ranges::to<std::string>(
+            std::views::join_with(kind_strings, " or "));
+
+        if (toks.size() <= 0) {
+            error(self.loc,
+                  std::format("expected {:s}, but got nothing", ored_kinds));
+            return std::nullopt;
+        }
+
+        Token tok = toks.back();
+        toks.pop_back();
+
+        if (!kinds.contains(tok.kind)) {
+            error(tok.loc,
+                  std::format("expected {:s}, but got {}",
+                              ored_kinds,
                               human(tok.kind)));
             return std::nullopt;
         }
