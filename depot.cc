@@ -173,6 +173,8 @@ struct Token {
         Number,
         String,
 
+        While,
+
         Extern,
         Semicolon, // TODO: better name?
 
@@ -197,6 +199,7 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "+", Token::Kind::Plus },        { "-", Token::Kind::Minus },
     { "*", Token::Kind::Mult },        { "/", Token::Kind::Div },
     { "extern", Token::Kind::Extern }, { ";", Token::Kind::Semicolon },
+    { "while", Token::Kind::While },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -216,6 +219,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "numbers" : "a number";
     case Token::Kind::String:
         return plural ? "strings" : "a string";
+    case Token::Kind::While:
+        return plural ? "`while` keywords" : "`while` keyword";
     case Token::Kind::Extern:
         return plural ? "`extern` keywords" : "`extern` keyword";
     case Token::Kind::Semicolon:
@@ -393,12 +398,17 @@ struct Op {
 
     Token tok;
     enum struct Kind {
+        // Empty, // no operand (0 as int64)
         Proc_Start, // operand(str): procedure name
         Proc_Return, // operand(str): procedure name
         Proc_Call, // operand(str): procedure name
         Extern_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
+
+        Jump, // operand(int64): op index to jump to
+        Jump_If_Zero, // operand(int64): op index to jump to if top element is
+                      // non-zero
 
         Drop, // no operand (0 as int64)
         Dup, // no operand (0 as int64)
@@ -428,6 +438,10 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Push_Int";
     case Op::Kind::Push_Str:
         return "Push_Str";
+    case Op::Kind::Jump:
+        return "Jump";
+    case Op::Kind::Jump_If_Zero:
+        return "Jump_If_Zero";
     case Op::Kind::Drop:
         return "Drop";
     case Op::Kind::Dup:
@@ -626,6 +640,45 @@ struct Parser {
         return true;
     }
 
+    bool parse_while(std::vector<Op>& ops)
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const s64 cond_op_index = ops.size();
+        while (!toks.empty() && toks.back().kind != Token::Kind::Open_Curly) {
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this while loop body");
+                return false;
+            }
+        }
+
+        const auto open_curly = expect(self, Token::Kind::Open_Curly);
+        if (!open_curly) {
+            error(self.loc, "while loops without a body are not allowed");
+            return false;
+        }
+
+        const u64 jump_if_index = ops.size();
+        ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
+        while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this while loop body");
+                return false;
+            }
+        }
+
+        if (!expect(self, Token::Kind::Close_Curly)) {
+            error(self.loc, "unclosed while loop block");
+            note(open_curly->loc, "opened here");
+            return false;
+        }
+        ops.emplace_back(self, Op::Kind::Jump, cond_op_index);
+        ops[jump_if_index].as = static_cast<s64>(ops.size());
+
+        return true;
+    }
+
     bool parse_extern_proc()
     {
         const auto self = toks.back();
@@ -783,6 +836,17 @@ struct Parser {
                              static_cast<s64>(strings.size()));
             strings.push_back(t.text);
             toks.pop_back();
+            break;
+        case Token::Kind::While:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "while loops only allowed inside of procedure bodies");
+                toks.pop_back();
+                return false;
+            }
+
+            if (!parse_while(ops))
+                return false;
             break;
         case Token::Kind::Extern:
             if (!current_proc_name.empty()) {
@@ -1040,6 +1104,14 @@ namespace x86_64 {
                 out << "\tmovq $_depot_str" << std::get<s64>(op.as)
                     << ", %rax\n";
                 out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Jump:
+                out << "\tjmp op_" << std::get<s64>(op.as) << '\n';
+                break;
+            case Op::Kind::Jump_If_Zero:
+                out << "\tpopq %rax\n";
+                out << "\ttest %rax, %rax\n";
+                out << "\tjz op_" << std::get<s64>(op.as) << '\n';
                 break;
             case Op::Kind::Drop:
                 out << "\tpopq %rax\n";
