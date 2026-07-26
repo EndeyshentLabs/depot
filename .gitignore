@@ -3,8 +3,6 @@ depot-rel
 depot-dbg
 *.[oaSs]
 a.out
-/simple
-/math
 *.exe
 *.lib
 *.dll

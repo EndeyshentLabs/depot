@@ -1,0 +1,7 @@
+link "c"
+
+extern proc puts 1 ;
+
+proc main {
+    "Hello, World!" swap drop puts drop 0
+}
