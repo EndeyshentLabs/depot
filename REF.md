@@ -38,6 +38,17 @@ link "<lib>"
 extern proc <symbol-name> <arity> ;
 ```
 
+- `while` -- while loop block
+
+> [!NOTE]
+> `<cond>` can access outer stack
+
+```depot
+while <cond> {
+    <body>
+}
+```
+
 - `drop` -- remove top element
 
 Signature: `x --`
