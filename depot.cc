@@ -575,6 +575,69 @@ struct Parser {
         return true;
     }
 
+    bool parse_extern_proc()
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+        const auto prockwd = expect(self, Token::Kind::Proc);
+        if (!prockwd.has_value()) {
+            note(self.loc, "for this `extern` construction");
+            return false;
+        }
+
+        const auto proc_name = expect(self, Token::Kind::Ident);
+        if (!proc_name.has_value()) {
+            note(self.loc, "as procedure name for this `extern` construction");
+            return false;
+        }
+
+        const auto arity = expect(self, Token::Kind::Number);
+        if (!arity.has_value()) {
+            note(self.loc, "as arity for this `extern` construction");
+            return false;
+        }
+
+        // TODO
+        errno = 0;
+        const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
+        if (errno == ERANGE) {
+            error(arity->loc,
+                  std::format("number out of range (accepted range [{}, {}])",
+                              std::numeric_limits<decltype(num)>::min(),
+                              std::numeric_limits<decltype(num)>::max()));
+            return false;
+        }
+
+        if (!expect(self, Token::Kind::Semicolon).has_value()) {
+            note(self.loc, "to end this `extern` construction");
+            return false;
+        }
+
+        if (extern_procs.contains(proc_name->text)) {
+            error(self.loc,
+                  std::format("redefinition of extern procedure \"{}\"",
+                              proc_name->text));
+            note(extern_procs.at(proc_name->text).tok.loc,
+                 "previously defined here");
+            return false;
+        }
+
+        if (procs.contains(proc_name->text)) {
+            error(
+                self.loc,
+                std::format("external procedure name shadows procedure \"{}\"",
+                            proc_name->text));
+            note(procs.at(proc_name->text).tok.loc, "previously defined here");
+            return false;
+        }
+
+        extern_procs.emplace(
+            proc_name->text,
+            Extern_Proc { self, proc_name->text, static_cast<u64>(num) });
+
+        return true;
+    }
+
     bool parse_token(std::vector<Op>& ops, const Token& t)
     {
         switch (t.kind) {
@@ -585,7 +648,9 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            parse_proc(ops);
+
+            if (!parse_proc(ops))
+                return false;
             break;
         case Token::Kind::Link:
             if (!current_proc_name.empty()) {
@@ -593,7 +658,9 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            parse_link();
+
+            if (!parse_link())
+                return false;
             break;
         case Token::Kind::Number: {
             if (current_proc_name.empty()) {
@@ -647,12 +714,6 @@ struct Parser {
                 return false;
             }
             break;
-        case Token::Kind::Open_Curly:
-        case Token::Kind::Semicolon:
-        case Token::Kind::Close_Curly:
-            error(t.loc, std::format("unexpected {}", human(t.kind)));
-            toks.pop_back();
-            return false;
         case Token::Kind::String:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -662,77 +723,26 @@ struct Parser {
                 return false;
             }
 
-            ops.emplace_back(t, Op::Kind::Push_Int, (s64)t.text.size());
-            ops.emplace_back(t, Op::Kind::Push_Str, (s64)strings.size());
+            ops.emplace_back(t,
+                             Op::Kind::Push_Int,
+                             static_cast<s64>(t.text.size()));
+            ops.emplace_back(t,
+                             Op::Kind::Push_Str,
+                             static_cast<s64>(strings.size()));
             strings.push_back(t.text);
             toks.pop_back();
             break;
-        case Token::Kind::Extern: {
-            toks.pop_back();
+        case Token::Kind::Extern:
             if (!current_proc_name.empty()) {
                 error(t.loc,
                       "`extern` constructions only allowed in global scope");
                 toks.pop_back();
                 return false;
             }
-            const auto prockwd = expect(t, Token::Kind::Proc);
-            if (!prockwd.has_value()) {
-                note(t.loc, "for this `extern` construction");
-                return false;
-            }
 
-            const auto proc_name = expect(t, Token::Kind::Ident);
-            if (!proc_name.has_value()) {
-                note(t.loc, "as procedure name for this `extern` construction");
+            if (!parse_extern_proc())
                 return false;
-            }
-
-            const auto arity = expect(t, Token::Kind::Number);
-            if (!arity.has_value()) {
-                note(t.loc, "as arity for this `extern` construction");
-                return false;
-            }
-
-            // TODO
-            errno = 0;
-            const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
-            if (errno == ERANGE) {
-                error(
-                    arity->loc,
-                    std::format("number out of range (accepted range [{}, {}])",
-                                std::numeric_limits<decltype(num)>::min(),
-                                std::numeric_limits<decltype(num)>::max()));
-                return false;
-            }
-
-            if (!expect(t, Token::Kind::Semicolon).has_value()) {
-                note(t.loc, "to end this `extern` construction");
-                return false;
-            }
-
-            if (extern_procs.contains(proc_name->text)) {
-                error(t.loc,
-                      std::format("redefinition of extern procedure \"{}\"",
-                                  proc_name->text));
-                note(extern_procs.at(proc_name->text).tok.loc,
-                     "previously defined here");
-                return false;
-            }
-
-            if (procs.contains(proc_name->text)) {
-                error(t.loc,
-                      std::format(
-                          "external procedure name shadows procedure \"{}\"",
-                          proc_name->text));
-                note(procs.at(proc_name->text).tok.loc,
-                     "previously defined here");
-                return false;
-            }
-
-            extern_procs.emplace(
-                proc_name->text,
-                Extern_Proc { t, proc_name->text, static_cast<u64>(num) });
-        } break;
+            break;
         case Token::Kind::Drop:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -821,6 +831,12 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Div);
             toks.pop_back();
             break;
+        case Token::Kind::Open_Curly:
+        case Token::Kind::Semicolon:
+        case Token::Kind::Close_Curly:
+            error(t.loc, std::format("unexpected {}", human(t.kind)));
+            toks.pop_back();
+            return false;
         }
 
         return true;
