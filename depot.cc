@@ -545,6 +545,25 @@ struct Parser {
             note(open_curly->loc, "opened here");
             return false;
         }
+
+        if (procs.contains(proc_name->text)) {
+            error(self.loc,
+                  std::format("redefinition of procedure \"{}\"",
+                              proc_name->text));
+            note(procs.at(proc_name->text).tok.loc, "previously defined here");
+            return false;
+        }
+
+        if (extern_procs.contains(proc_name->text)) {
+            error(
+                self.loc,
+                std::format("procedure name shadows external procedure \"{}\"",
+                            proc_name->text));
+            note(extern_procs.at(proc_name->text).tok.loc,
+                 "previously defined here");
+            return false;
+        }
+
         ops.emplace_back(self, Op::Kind::Proc_Return, proc_name->text);
 
         current_proc_name = "";
