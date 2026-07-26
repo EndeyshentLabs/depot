@@ -58,6 +58,23 @@ using f64 = double;
         }                                                                      \
     } while (0)
 
+[[noreturn]] void todo(std::string_view text,
+                       const std::source_location sl
+                       = std::source_location::current())
+{
+    std::println(stderr,
+                 "{}:{}:{}: unimplemented: {}",
+                 sl.file_name(),
+                 sl.line(),
+                 sl.column(),
+                 text);
+    std::abort();
+}
+
+#define TODO() todo(__PRETTY_FUNCTION__)
+// }}}
+
+// {{{
 static void execute_command(const std::vector<std::string>& cmd_line)
 {
     std::print("cmd:");
@@ -113,21 +130,6 @@ static void execute_command(const std::vector<std::string>& cmd_line)
     }
 #endif
 }
-
-[[noreturn]] void todo(std::string_view text,
-                       const std::source_location sl
-                       = std::source_location::current())
-{
-    std::println(stderr,
-                 "{}:{}:{}: unimplemented: {}",
-                 sl.file_name(),
-                 sl.line(),
-                 sl.column(),
-                 text);
-    std::abort();
-}
-
-#define TODO() todo(__PRETTY_FUNCTION__)
 // }}}
 
 // {{{
