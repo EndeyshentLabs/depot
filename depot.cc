@@ -173,6 +173,8 @@ struct Token {
         Number,
         String,
 
+        If,
+        Then,
         While,
 
         Extern,
@@ -185,21 +187,39 @@ struct Token {
         Plus,
         Minus,
         Mult,
+        // TODO(:Idiv): merge these two into a sinlge Idiv token
         Div,
+        Mod,
+
+        Equal,
+        Not_Equal,
+        Less_Than,
+        Less_Equal,
+        Greater_Than,
+        Greater_Equal,
     } kind;
     std::string text;
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
-    { "proc", Token::Kind::Proc },     { "link", Token::Kind::Link },
-    { "{", Token::Kind::Open_Curly },  { "}", Token::Kind::Close_Curly },
-    { "drop", Token::Kind::Drop },     { "dup", Token::Kind::Dup },
-    { "swap", Token::Kind::Swap },     { "over", Token::Kind::Over },
+    { "proc", Token::Kind::Proc },      { "link", Token::Kind::Link },
+    { "{", Token::Kind::Open_Curly },   { "}", Token::Kind::Close_Curly },
 
-    { "+", Token::Kind::Plus },        { "-", Token::Kind::Minus },
-    { "*", Token::Kind::Mult },        { "/", Token::Kind::Div },
-    { "extern", Token::Kind::Extern }, { ";", Token::Kind::Semicolon },
+    { "drop", Token::Kind::Drop },      { "dup", Token::Kind::Dup },
+    { "swap", Token::Kind::Swap },      { "over", Token::Kind::Over },
+
+    { "+", Token::Kind::Plus },         { "-", Token::Kind::Minus },
+    { "*", Token::Kind::Mult },         { "/", Token::Kind::Div },
+    { "mod", Token::Kind::Mod },
+
+    { "extern", Token::Kind::Extern },  { ";", Token::Kind::Semicolon },
+
+    { "if", Token::Kind::If },          { "then", Token::Kind::Then },
     { "while", Token::Kind::While },
+
+    { "=", Token::Kind::Equal },        { "!=", Token::Kind::Not_Equal },
+    { "<", Token::Kind::Less_Than },    { "<=", Token::Kind::Less_Equal },
+    { ">", Token::Kind::Greater_Than }, { ">=", Token::Kind::Greater_Equal },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -219,6 +239,10 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "numbers" : "a number";
     case Token::Kind::String:
         return plural ? "strings" : "a string";
+    case Token::Kind::If:
+        return plural ? "`if` keywords" : "`if` keyword";
+    case Token::Kind::Then:
+        return plural ? "`then` keywords" : "`then` keyword";
     case Token::Kind::While:
         return plural ? "`while` keywords" : "`while` keyword";
     case Token::Kind::Extern:
@@ -241,6 +265,20 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return "`*`";
     case Token::Kind::Div:
         return "`/`";
+    case Token::Kind::Mod:
+        return "`mod`";
+    case Token::Kind::Equal:
+        return "`=`";
+    case Token::Kind::Not_Equal:
+        return "`!=`";
+    case Token::Kind::Less_Than:
+        return "`<`";
+    case Token::Kind::Less_Equal:
+        return "`<=`";
+    case Token::Kind::Greater_Than:
+        return "`>`";
+    case Token::Kind::Greater_Equal:
+        return "`>=`";
     default:
         std::unreachable();
     }
@@ -408,7 +446,7 @@ struct Op {
 
         Jump, // operand(int64): op index to jump to
         Jump_If_Zero, // operand(int64): op index to jump to if top element is
-                      // non-zero
+                      // zero
 
         Drop, // no operand (0 as int64)
         Dup, // no operand (0 as int64)
@@ -417,7 +455,16 @@ struct Op {
         Plus, // no operand (0 as int64)
         Minus, // no operand (0 as int64)
         Mult, // no operand (0 as int64)
+        // TODO(:Idiv)
         Div, // no operand (0 as int64)
+        Mod, // no operand (0 as int64)
+
+        Equal, // no operand (0 as int64)
+        Not_Equal, // no operand (0 as int64)
+        Less_Than, // no operand (0 as int64)
+        Less_Equal, // no operand (0 as int64)
+        Greater_Than, // no operand (0 as int64)
+        Greater_Equal, // no operand (0 as int64)
     } kind;
 
     As as;
@@ -458,6 +505,20 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Mult";
     case Op::Kind::Div:
         return "Div";
+    case Op::Kind::Mod:
+        return "Mod";
+    case Op::Kind::Equal:
+        return "Equal";
+    case Op::Kind::Not_Equal:
+        return "Not_Equal";
+    case Op::Kind::Less_Than:
+        return "Less_Than";
+    case Op::Kind::Less_Equal:
+        return "Less_Equal";
+    case Op::Kind::Greater_Than:
+        return "Greater_Than";
+    case Op::Kind::Greater_Equal:
+        return "Greater_Equal";
     default:
         std::unreachable();
     }
@@ -636,6 +697,28 @@ struct Parser {
         }
 
         linker_libs.push_back(lib_name->text);
+
+        return true;
+    }
+
+    bool parse_if(std::vector<Op>& ops)
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto jump_if_index = ops.size();
+        ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
+        while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this if block");
+                return false;
+            }
+        }
+        if (!expect(self, Token::Kind::Then)) {
+            error(self.loc, "unclosed if block");
+            return false;
+        }
+        ops[jump_if_index].as = static_cast<s64>(ops.size());
 
         return true;
     }
@@ -837,6 +920,16 @@ struct Parser {
             strings.push_back(t.text);
             toks.pop_back();
             break;
+        case Token::Kind::If:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "if blocks only allowed inside of procedure bodies");
+                toks.pop_back();
+                return false;
+            }
+            if (!parse_if(ops))
+                return false;
+            break;
         case Token::Kind::While:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -947,6 +1040,90 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Div);
             toks.pop_back();
             break;
+        case Token::Kind::Mod:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`mod` is only allowed inside of "
+                      "procedure bodies");
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Mod);
+            toks.pop_back();
+            break;
+        case Token::Kind::Equal:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Equal);
+            toks.pop_back();
+            break;
+        case Token::Kind::Not_Equal:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Not_Equal);
+            toks.pop_back();
+            break;
+        case Token::Kind::Less_Than:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Less_Than);
+            toks.pop_back();
+            break;
+        case Token::Kind::Less_Equal:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Less_Equal);
+            toks.pop_back();
+            break;
+        case Token::Kind::Greater_Than:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Greater_Than);
+            toks.pop_back();
+            break;
+        case Token::Kind::Greater_Equal:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Greater_Equal);
+            toks.pop_back();
+            break;
+        case Token::Kind::Then:
         case Token::Kind::Open_Curly:
         case Token::Kind::Semicolon:
         case Token::Kind::Close_Curly:
@@ -1158,6 +1335,55 @@ namespace x86_64 {
                 out << "\tpopq %rax\n";
                 out << "\tcqo\n";
                 out << "\tidivq %rcx\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Mod:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcqo\n";
+                out << "\tidivq %rcx\n";
+                out << "\tpushq %rdx\n";
+                break;
+            case Op::Kind::Equal:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsete %al\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Not_Equal:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsetne %al\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Less_Than:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsetl %al\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Less_Equal:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsetle %al\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Greater_Than:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsetg %al\n";
+                out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Greater_Equal:
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rax\n";
+                out << "\tcmpq %rcx, %rax\n";
+                out << "\tsetge %al\n";
                 out << "\tpushq %rax\n";
                 break;
             default:
