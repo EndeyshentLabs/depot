@@ -342,7 +342,6 @@ struct Lexer {
 
         loc.file_path = path;
         if (source.empty()) {
-            ;
             std::println(stderr, "{}: error: Empty file", loc);
             std::println("{}: note: consider adding procedure main", loc);
             std::println("|\t// minimal program:");
