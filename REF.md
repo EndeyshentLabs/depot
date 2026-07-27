@@ -80,3 +80,23 @@ Signature `x y -- x*y`
 - `/` -- divide element below the top by the top element
 
 Signature `x y -- x/y`
+
+- `@<size>` -- dereference a pointer to value of size `<size>`
+
+Available sizes (architecture dependant):
+- 64
+- 32
+- 16
+- 8
+
+Signature `x-addr -- x`
+
+- `!<size>` -- store a value of size `<size>` to memory
+
+Available sizes (**NOTE:** architecture dependant):
+- 64
+- 32
+- 16
+- 8
+
+Signature `x x-addr --`
