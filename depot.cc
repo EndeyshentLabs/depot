@@ -197,6 +197,15 @@ struct Token {
         Less_Equal,
         Greater_Than,
         Greater_Equal,
+
+        Load64,
+        Load32,
+        Load16,
+        Load8,
+        Store64,
+        Store32,
+        Store16,
+        Store8,
     } kind;
     std::string text;
 };
@@ -220,6 +229,11 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "=", Token::Kind::Equal },        { "!=", Token::Kind::Not_Equal },
     { "<", Token::Kind::Less_Than },    { "<=", Token::Kind::Less_Equal },
     { ">", Token::Kind::Greater_Than }, { ">=", Token::Kind::Greater_Equal },
+
+    { "@64", Token::Kind::Load64 },     { "@32", Token::Kind::Load32 },
+    { "@16", Token::Kind::Load16 },     { "@8", Token::Kind::Load8 },
+    { "!64", Token::Kind::Store64 },    { "!32", Token::Kind::Store32 },
+    { "!16", Token::Kind::Store16 },    { "!8", Token::Kind::Store8 },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -279,6 +293,22 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return "`>`";
     case Token::Kind::Greater_Equal:
         return "`>=`";
+    case Token::Kind::Load64:
+        return "`@64`";
+    case Token::Kind::Load32:
+        return "`@32`";
+    case Token::Kind::Load16:
+        return "`@16`";
+    case Token::Kind::Load8:
+        return "`@8`";
+    case Token::Kind::Store64:
+        return "`!64`";
+    case Token::Kind::Store32:
+        return "`!32`";
+    case Token::Kind::Store16:
+        return "`!16`";
+    case Token::Kind::Store8:
+        return "`!8`";
     default:
         std::unreachable();
     }
@@ -465,6 +495,15 @@ struct Op {
         Less_Equal, // no operand (0 as int64)
         Greater_Than, // no operand (0 as int64)
         Greater_Equal, // no operand (0 as int64)
+
+        Load64, // no operand (0 as int64)
+        Load32, // no operand (0 as int64)
+        Load16, // no operand (0 as int64)
+        Load8, // no operand (0 as int64)
+        Store64, // no operand (0 as int64)
+        Store32, // no operand (0 as int64)
+        Store16, // no operand (0 as int64)
+        Store8, // no operand (0 as int64)
     } kind;
 
     As as;
@@ -519,6 +558,22 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Greater_Than";
     case Op::Kind::Greater_Equal:
         return "Greater_Equal";
+    case Op::Kind::Load64:
+        return "Load64";
+    case Op::Kind::Load32:
+        return "Load32";
+    case Op::Kind::Load16:
+        return "Load16";
+    case Op::Kind::Load8:
+        return "Load8";
+    case Op::Kind::Store64:
+        return "Store64";
+    case Op::Kind::Store32:
+        return "Store32";
+    case Op::Kind::Store16:
+        return "Store16";
+    case Op::Kind::Store8:
+        return "Store8";
     default:
         std::unreachable();
     }
@@ -1123,6 +1178,102 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Greater_Equal);
             toks.pop_back();
             break;
+        case Token::Kind::Load64:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Load64);
+            toks.pop_back();
+            break;
+        case Token::Kind::Load32:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Load32);
+            toks.pop_back();
+            break;
+        case Token::Kind::Load16:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Load16);
+            toks.pop_back();
+            break;
+        case Token::Kind::Load8:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Load8);
+            toks.pop_back();
+            break;
+        case Token::Kind::Store64:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Store64);
+            toks.pop_back();
+            break;
+        case Token::Kind::Store32:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Store32);
+            toks.pop_back();
+            break;
+        case Token::Kind::Store16:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Store16);
+            toks.pop_back();
+            break;
+        case Token::Kind::Store8:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      std::format("{} is only allowed inside of "
+                                  "procedure bodies",
+                                  human(t.kind)));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Store8);
+            toks.pop_back();
+            break;
         case Token::Kind::Then:
         case Token::Kind::Open_Curly:
         case Token::Kind::Semicolon:
@@ -1385,6 +1536,46 @@ namespace x86_64 {
                 out << "\tcmpq %rcx, %rax\n";
                 out << "\tsetge %al\n";
                 out << "\tpushq %rax\n";
+                break;
+            case Op::Kind::Load64:
+                out << "\tpopq %rax\n";
+                out << "\tmovq (%rax), %rcx\n";
+                out << "\tpushq %rcx\n";
+                break;
+            case Op::Kind::Load32:
+                out << "\tpopq %rax\n";
+                out << "\tmovl (%rax), %ecx\n";
+                out << "\tpushq %rcx\n";
+                break;
+            case Op::Kind::Load16:
+                out << "\tpopq %rax\n";
+                out << "\tmovzwl (%rax), %ecx\n";
+                out << "\tpushq %rcx\n";
+                break;
+            case Op::Kind::Load8:
+                out << "\tpopq %rax\n";
+                out << "\tmovzbl (%rax), %ecx\n";
+                out << "\tpushq %rcx\n";
+                break;
+            case Op::Kind::Store64:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tmovq %rcx, (%rax)\n";
+                break;
+            case Op::Kind::Store32:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tmovl %ecx, (%rax)\n";
+                break;
+            case Op::Kind::Store16:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tmovw %cx, (%rax)\n";
+                break;
+            case Op::Kind::Store8:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tmovb %cl, (%rax)\n";
                 break;
             default:
                 std::unreachable();
