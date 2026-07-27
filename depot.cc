@@ -88,7 +88,7 @@ static void execute_command(const std::vector<std::string>& cmd_line)
 #else
     const char** args = new const char*[cmd_line.size() + 1];
     for (usz i = 0; i < cmd_line.size(); ++i) {
-        args[i] = cmd_line.at(i).c_str();
+        args[i] = cmd_line[i].c_str();
     }
     args[cmd_line.size()] = nullptr;
 
@@ -97,7 +97,7 @@ static void execute_command(const std::vector<std::string>& cmd_line)
         std::println(stderr, "error: fork failed: {}", std::strerror(errno));
         std::exit(1);
     } else if (child_pid == 0) { // child
-        ::execvp(cmd_line.at(0).c_str(), (char* const*)args);
+        ::execvp(cmd_line[0].c_str(), (char* const*)args);
     } else { // parent
         int wstatus = 0;
         do {
@@ -348,7 +348,7 @@ struct Lexer {
             std::println("|\tlink \"c\"\n|\tproc main {{ 0 }}");
             std::exit(2);
         }
-        c = source.at(cursor);
+        c = source[cursor];
         ASSERT(c != 0,
                "{}: error: First character of the file cannot be NUL",
                loc);
@@ -361,7 +361,7 @@ struct Lexer {
             return false;
         }
         cursor++;
-        c = source.at(cursor);
+        c = source[cursor];
 
         if (c == '\n') {
             loc.row++;
@@ -377,7 +377,7 @@ struct Lexer {
     {
         if (cursor + offset >= source.size() - 1)
             return 0;
-        return source.at(cursor + offset);
+        return source[cursor + offset];
     }
 
     std::vector<Token> lex()
@@ -1583,7 +1583,7 @@ namespace x86_64 {
 
         out << ".data\n";
         for (usz i = 0; i < ctx.strings.size(); ++i) {
-            const auto& str = ctx.strings.at(i);
+            const auto& str = ctx.strings[i];
             out << "_depot_str" << i << ": .byte";
             for (const u8 c : str) {
                 out << " 0x" << std::hex << (u16)c << ',';
