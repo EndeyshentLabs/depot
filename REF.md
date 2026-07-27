@@ -119,7 +119,7 @@ Signature `x y -- x>=y`
 
 - `@<size>` -- dereference a pointer to value of size `<size>`
 
-Available sizes (architecture dependant):
+Available sizes (**NOTE:** architecture dependant):
 - 64
 - 32
 - 16
