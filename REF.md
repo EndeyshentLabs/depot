@@ -49,6 +49,14 @@ while <cond> {
 }
 ```
 
+- `if` -- begin if block
+
+```depot
+<cond> if
+    <body>
+then
+```
+
 - `drop` -- remove top element
 
 Signature: `x --`
@@ -80,6 +88,34 @@ Signature `x y -- x*y`
 - `/` -- divide element below the top by the top element
 
 Signature `x y -- x/y`
+
+- `mod` -- remained of `/`
+
+Signature `x y -- x%y`
+
+- `=` -- equality comparison
+
+Signature `x y -- x==y`
+
+- `!=` -- not-equal comparison
+
+Signature `x y -- x!=y`
+
+- `<` -- less-than comparison
+
+Signature `x y -- x<y`
+
+- `<=` -- less-than-or-equal comparison
+
+Signature `x y -- x<=y`
+
+- `>` -- greater-than comparison
+
+Signature `x y -- x>y`
+
+- `>=` -- greater-than-or-equal comparison
+
+Signature `x y -- x>=y`
 
 - `@<size>` -- dereference a pointer to value of size `<size>`
 
