@@ -1,0 +1,22 @@
+link "c"
+
+extern proc malloc 1 ;
+extern proc free 1 ;
+extern proc putchar 1 ;
+
+proc main {
+    6 malloc
+    dup 72  swap 0 + !8 // H
+    dup 101 swap 1 + !8 // e
+    dup 108 swap 2 + !8 // l
+    dup 108 swap 3 + !8 // l
+    dup 111 swap 4 + !8 // o
+    dup 10  swap 5 + !8 // \n
+
+    0 while dup 6 < {
+        over over + @8 putchar drop
+        1 +
+    } drop
+
+    free drop
+}
