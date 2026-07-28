@@ -475,7 +475,7 @@ struct Op {
     enum struct Kind {
         // Empty, // no operand (0 as int64)
         Proc_Start, // operand(str): procedure name
-        Proc_Return, // operand(str): procedure name
+        Proc_Return, // no operand (0 as int64)
         Proc_Call, // operand(str): procedure name
         Extern_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
@@ -589,6 +589,7 @@ static constexpr std::string_view human(Op::Kind kind)
 struct Proc {
     Token tok;
     std::string name;
+    s64 op_index;
 };
 
 struct Extern_Proc {
@@ -602,6 +603,7 @@ struct Da_Thing {
     std::vector<std::string> linker_libs;
     std::vector<Op> ops;
     std::vector<std::string> strings;
+    std::unordered_map<std::string, Proc> procs;
     std::unordered_map<std::string, Extern_Proc> extern_procs;
 };
 
@@ -720,8 +722,10 @@ struct Parser {
             return false;
         }
 
-        procs.emplace(proc_name->text, Proc { self, proc_name->text });
         current_proc_name = proc_name->text;
+        procs.emplace(
+            proc_name->text,
+            Proc { self, proc_name->text, static_cast<s64>(ops.size()) });
         ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
@@ -736,7 +740,7 @@ struct Parser {
             return false;
         }
 
-        ops.emplace_back(self, Op::Kind::Proc_Return, proc_name->text);
+        ops.emplace_back(self, Op::Kind::Proc_Return);
 
         current_proc_name = "";
 
@@ -1311,6 +1315,7 @@ struct Parser {
             .linker_libs = linker_libs,
             .ops = ops,
             .strings = strings,
+            .procs = procs,
             .extern_procs = extern_procs,
         };
     }
@@ -1364,10 +1369,8 @@ namespace x86_64 {
             case Op::Kind::Proc_Start: {
                 auto name = std::get<std::string>(op.as);
                 if (name == "main")
-                    name = "_depot_main";
+                    out << "_depot_main:\n";
 
-                // out << "\t.globl " << name << '\n';
-                out << name << ":\n";
                 out << "\tsubq $8, %rsp\n";
                 out << "\tmovq %rsp, _depot_saved_rsp\n";
                 out << "\tmovq %r12, %rsp\n";
@@ -1378,13 +1381,17 @@ namespace x86_64 {
                 out << "\taddq $8, %rsp\n";
                 out << "\tret\n";
                 break;
-            case Op::Kind::Proc_Call:
+            case Op::Kind::Proc_Call: {
+                const auto proc_name = std::get<std::string>(op.as);
+                ASSERT(ctx.procs.contains(proc_name),
+                       "Compiler Bug: Proc_Call in Codegen, but the name "
+                       "wasn't registered by parser");
                 out << "\tmovq %rsp, %r12\n";
                 out << "\tmovq _depot_saved_rsp, %rsp\n";
-                out << "\tcall " << std::get<std::string>(op.as) << '\n';
+                out << "\tcall op_" << ctx.procs.at(proc_name).op_index << '\n';
                 out << "\tmovq %rsp, _depot_saved_rsp\n";
                 out << "\tmovq %r12, %rsp\n";
-                break;
+            } break;
             case Op::Kind::Extern_Call: { // TODO: calling convention
                 const auto proc_name = std::get<std::string>(op.as);
                 ASSERT(ctx.extern_procs.contains(proc_name),
