@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <print>
 #include <ranges>
@@ -129,6 +130,23 @@ static void execute_command(const std::vector<std::string>& cmd_line)
         args = nullptr;
     }
 #endif
+}
+// }}}
+
+// {{{
+template <typename T>
+    requires(std::is_same_v<T, std::ifstream>
+             || std::is_same_v<T, std::ofstream>)
+void check_fstream_error(const T& file, std::string_view path)
+{
+    if (!file.is_open()) {
+        std::string reason = "Unknown error";
+        if (file.fail())
+            reason = std::strerror(errno);
+
+        std::println(stderr, "{}: error: Couldn't open: {}", path, reason);
+        std::exit(2);
+    }
 }
 // }}}
 
@@ -324,17 +342,7 @@ struct Lexer {
     {
         std::ifstream file { path };
 
-        if (!file.is_open()) {
-            std::string reason = "Unknown error";
-            if (file.fail())
-                reason = std::strerror(errno);
-
-            std::println(stderr,
-                         "{}: error: Couldn't open: {}",
-                         path.string(),
-                         reason);
-            std::exit(2);
-        }
+        check_fstream_error(file, path.string());
 
         std::stringstream buffer;
         buffer << file.rdbuf();
@@ -612,22 +620,27 @@ struct Parser {
         this->toks.assign_range(std::ranges::reverse_view(toks));
     }
 
-    void error(const Location& loc, std::string_view text)
+    template <typename... Args>
+    void
+    error(const Location& loc, std::format_string<Args&...> text, Args... args)
     {
         has_error = true;
-        std::println(stderr, "{}: error: {}", loc, text);
+        std::print(stderr, "{}: error: ", loc);
+        std::println(stderr, text, args...);
     }
 
-    void note(const Location& loc, std::string_view text)
+    template <typename... Args>
+    void
+    note(const Location& loc, std::format_string<Args...> text, Args... args)
     {
-        std::println("{}: note: {}", loc, text);
+        std::print("{}: note: ", loc);
+        std::println(text, args...);
     }
 
     std::optional<Token> expect(const Token& self, Token::Kind kind)
     {
         if (toks.size() <= 0) {
-            error(self.loc,
-                  std::format("expected {}, but got nothing", human(kind)));
+            error(self.loc, "expected {}, but got nothing", human(kind));
             return std::nullopt;
         }
 
@@ -636,9 +649,9 @@ struct Parser {
 
         if (tok.kind != kind) {
             error(tok.loc,
-                  std::format("expected {}, but got {}",
-                              human(kind),
-                              human(tok.kind)));
+                  "expected {}, but got {}",
+                  human(kind),
+                  human(tok.kind));
             return std::nullopt;
         }
 
@@ -655,8 +668,7 @@ struct Parser {
             std::views::join_with(kind_strings, " or "));
 
         if (toks.size() <= 0) {
-            error(self.loc,
-                  std::format("expected {:s}, but got nothing", ored_kinds));
+            error(self.loc, "expected {:s}, but got nothing", ored_kinds);
             return std::nullopt;
         }
 
@@ -665,9 +677,9 @@ struct Parser {
 
         if (!kinds.contains(tok.kind)) {
             error(tok.loc,
-                  std::format("expected {:s}, but got {}",
-                              ored_kinds,
-                              human(tok.kind)));
+                  "expected {:s}, but got {}",
+                  ored_kinds,
+                  human(tok.kind));
             return std::nullopt;
         }
 
@@ -685,7 +697,7 @@ struct Parser {
             return false;
         }
 
-        const auto& open_curly = expect(self, Token::Kind::Open_Curly);
+        const auto open_curly = expect(self, Token::Kind::Open_Curly);
         if (!open_curly) {
             note(self.loc, "for this procedure definition");
             return false;
@@ -693,17 +705,16 @@ struct Parser {
 
         if (procs.contains(proc_name->text)) {
             error(self.loc,
-                  std::format("redefinition of procedure \"{}\"",
-                              proc_name->text));
+                  "redefinition of procedure \"{}\"",
+                  proc_name->text);
             note(procs.at(proc_name->text).tok.loc, "previously defined here");
             return false;
         }
 
         if (extern_procs.contains(proc_name->text)) {
-            error(
-                self.loc,
-                std::format("procedure name shadows external procedure \"{}\"",
-                            proc_name->text));
+            error(self.loc,
+                  "procedure name shadows external procedure \"{}\"",
+                  proc_name->text);
             note(extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
@@ -844,9 +855,9 @@ struct Parser {
         const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
         if (errno == ERANGE) {
             error(arity->loc,
-                  std::format("number out of range (accepted range [{}, {}])",
-                              std::numeric_limits<decltype(num)>::min(),
-                              std::numeric_limits<decltype(num)>::max()));
+                  "number out of range (accepted range [{}, {}])",
+                  std::numeric_limits<decltype(num)>::min(),
+                  std::numeric_limits<decltype(num)>::max());
             return false;
         }
 
@@ -857,18 +868,17 @@ struct Parser {
 
         if (extern_procs.contains(proc_name->text)) {
             error(self.loc,
-                  std::format("redefinition of extern procedure \"{}\"",
-                              proc_name->text));
+                  "redefinition of extern procedure \"{}\"",
+                  proc_name->text);
             note(extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
         }
 
         if (procs.contains(proc_name->text)) {
-            error(
-                self.loc,
-                std::format("external procedure name shadows procedure \"{}\"",
-                            proc_name->text));
+            error(self.loc,
+                  "external procedure name shadows procedure \"{}\"",
+                  proc_name->text);
             note(procs.at(proc_name->text).tok.loc, "previously defined here");
             return false;
         }
@@ -916,11 +926,10 @@ struct Parser {
             errno = 0;
             const s64 num = std::strtoll(t.text.c_str(), nullptr, 10);
             if (errno == ERANGE) {
-                error(
-                    t.loc,
-                    std::format("number out of range (accepted range [{}, {}])",
-                                std::numeric_limits<decltype(num)>::min(),
-                                std::numeric_limits<decltype(num)>::max()));
+                error(t.loc,
+                      "number out of range (accepted range [{}, {}])",
+                      std::numeric_limits<decltype(num)>::min(),
+                      std::numeric_limits<decltype(num)>::max());
                 return false;
             }
 
@@ -951,7 +960,7 @@ struct Parser {
                 ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
                 toks.pop_back();
             } else {
-                error(t.loc, std::format("unexpected identifier `{}`", t.text));
+                error(t.loc, "unexpected identifier `{}`", t.text);
                 toks.pop_back();
                 return false;
             }
@@ -1108,9 +1117,9 @@ struct Parser {
         case Token::Kind::Equal:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1120,9 +1129,9 @@ struct Parser {
         case Token::Kind::Not_Equal:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1132,9 +1141,9 @@ struct Parser {
         case Token::Kind::Less_Than:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1144,9 +1153,9 @@ struct Parser {
         case Token::Kind::Less_Equal:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1156,9 +1165,9 @@ struct Parser {
         case Token::Kind::Greater_Than:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1168,9 +1177,9 @@ struct Parser {
         case Token::Kind::Greater_Equal:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1180,9 +1189,9 @@ struct Parser {
         case Token::Kind::Load64:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1192,9 +1201,9 @@ struct Parser {
         case Token::Kind::Load32:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1204,9 +1213,9 @@ struct Parser {
         case Token::Kind::Load16:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1216,9 +1225,9 @@ struct Parser {
         case Token::Kind::Load8:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1228,9 +1237,9 @@ struct Parser {
         case Token::Kind::Store64:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1240,9 +1249,9 @@ struct Parser {
         case Token::Kind::Store32:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1252,9 +1261,9 @@ struct Parser {
         case Token::Kind::Store16:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1264,9 +1273,9 @@ struct Parser {
         case Token::Kind::Store8:
             if (current_proc_name.empty()) {
                 error(t.loc,
-                      std::format("{} is only allowed inside of "
-                                  "procedure bodies",
-                                  human(t.kind)));
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
                 toks.pop_back();
                 return false;
             }
@@ -1277,7 +1286,7 @@ struct Parser {
         case Token::Kind::Open_Curly:
         case Token::Kind::Semicolon:
         case Token::Kind::Close_Curly:
-            error(t.loc, std::format("unexpected {}", human(t.kind)));
+            error(t.loc, "unexpected {}", human(t.kind));
             toks.pop_back();
             return false;
         }
@@ -1621,7 +1630,7 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
         const Fs_Path asm_path { dotbuild / (base_path.string() + ".S") };
         const Fs_Path obj_path { dotbuild / (base_path.string() + ".o") };
         std::ofstream file { asm_path };
-        ASSERT(file.is_open() && !file.fail(), "couldn't open file");
+        check_fstream_error(file, asm_path.string());
         file << out;
         file.close();
 
