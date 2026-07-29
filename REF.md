@@ -6,6 +6,10 @@
 
 ```depot
 1337 // STACK: 1337:int64
+// <base>#<num>, where base is in range [2, 36]
+2#1001 // STACK: 1337:int64 9:int64
+// bases bigger than 10 use latin alphabet letters (any case, even mixed)
+16#CaFe // STACK: 1337:int64 9:int64 51966:int64
 ```
 
 - string
