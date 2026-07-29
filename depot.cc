@@ -640,13 +640,14 @@ struct Parser {
 
     template <typename... Args>
     void
-    note(const Location& loc, std::format_string<Args...> text, Args... args)
+    note(const Location& loc, std::format_string<Args&...> text, Args... args)
     {
         std::print("{}: note: ", loc);
         std::println(text, args...);
     }
 
-    std::optional<Token> expect(const Token& self, Token::Kind kind, bool consume = true)
+    std::optional<Token>
+    expect(const Token& self, Token::Kind kind, bool consume = true)
     {
         if (toks.size() <= 0) {
             error(self.loc, "expected {}, but got nothing", human(kind));
@@ -668,7 +669,8 @@ struct Parser {
         return std::make_optional(tok);
     }
 
-    std::optional<Token> expect(const Token& self, std::set<Token::Kind> kinds, bool consume = true)
+    std::optional<Token>
+    expect(const Token& self, std::set<Token::Kind> kinds, bool consume = true)
     {
         const auto kind_strings
             = kinds
@@ -808,7 +810,10 @@ struct Parser {
             ops[jump_if_index].as = static_cast<s64>(ops.size());
 
             while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
-                if (!parse_token(ops, toks.back())) {
+                if (toks.back().kind == Token::Kind::Elif) {
+                    if (!parse_elif(ops))
+                        return false;
+                } else if (!parse_token(ops, toks.back())) {
                     note(else_or_then_tok->loc, "inside of this else branch");
                     note(self.loc, "inside of this if block");
                     return false;
@@ -818,6 +823,54 @@ struct Parser {
                 error(else_or_then_tok->loc, "unclosed else branch");
                 note(self.loc, "of this if block");
                 return false;
+            }
+            ops[jump_index].as = static_cast<s64>(ops.size());
+        } else { // else_or_then_tok->kind == Token::Kind::Then
+            ops[jump_if_index].as = static_cast<s64>(ops.size());
+        }
+
+        return true;
+    }
+
+    bool parse_elif(std::vector<Op>& ops)
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto jump_if_index = ops.size();
+        ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
+        while (!toks.empty() && toks.back().kind != Token::Kind::Then
+               && toks.back().kind != Token::Kind::Else) {
+            if (!parse_token(ops, toks.back())) {
+                note(self.loc, "inside of this elif block");
+                return false;
+            }
+        }
+
+        const auto else_or_then_tok
+            = expect(self, { Token::Kind::Then, Token::Kind::Else }, false);
+
+        if (!else_or_then_tok.has_value()) {
+            error(else_or_then_tok->loc, "unclosed elif block");
+            return false;
+        }
+
+        if (else_or_then_tok->kind == Token::Kind::Else) {
+            toks.pop_back();
+
+            const auto jump_index = ops.size();
+            ops.emplace_back(self, Op::Kind::Jump, 1337);
+            ops[jump_if_index].as = static_cast<s64>(ops.size());
+
+            while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
+                if (toks.back().kind == Token::Kind::Elif) {
+                    if (!parse_elif(ops))
+                        return false;
+                } else if (!parse_token(ops, toks.back())) {
+                    note(else_or_then_tok->loc, "inside of this else branch");
+                    note(self.loc, "inside of this elif block");
+                    return false;
+                }
             }
             ops[jump_index].as = static_cast<s64>(ops.size());
         } else { // else_or_then_tok->kind == Token::Kind::Then

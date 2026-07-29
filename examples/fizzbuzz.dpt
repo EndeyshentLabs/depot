@@ -20,13 +20,13 @@ proc main {
     1 while dup 100 <= {
         dup 15 mod 0 = if
             "FizzBuzz" print
-        else dup 3 mod 0 = if
+        else dup 3 mod 0 = elif
             "Fizz" print
-        else dup 5 mod 0 = if
+        else dup 5 mod 0 = elif
             "Buzz" print
         else
             dup printn 10 putchar drop
-        then then then
+        then
 
         1 +
     }
