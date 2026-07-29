@@ -54,6 +54,13 @@ while <cond> {
 ```depot
 <cond> if
     <body>
+else <cond2> elif
+    <body2>
+// ...
+eles <condN> elif
+    <bodyN>
+else
+    <bodyN+1>
 then
 ```
 
