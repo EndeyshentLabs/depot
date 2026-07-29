@@ -1,0 +1,17 @@
+link "c"
+
+extern proc printf 2 ;
+
+proc >cstr { swap drop }
+
+proc print {
+    >cstr
+    "%s" >cstr
+    swap printf drop
+}
+
+proc main {
+    "Secret!\r" print
+    "Hiding\tsomething\v" print
+    "Shhhhhhhhhhhh....\n" print
+}
