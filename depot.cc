@@ -151,6 +151,38 @@ void check_fstream_error(const T& file, std::string_view path)
 // }}}
 
 // {{{
+struct Better_Strtoll_Result {
+    enum struct Error_Kind {
+        Ok,
+        Out_Of_Range,
+        Garbage_On_The_End,
+    } error { Error_Kind::Ok };
+    s64 value { 0 };
+
+    constexpr operator bool() const { return error == Error_Kind::Ok; }
+    operator s64() { return value; }
+};
+
+Better_Strtoll_Result better_strtoll(const std::string& str, s32 base = 10)
+{
+    char* endptr = nullptr;
+    errno = 0;
+    s64 num = std::strtoll(str.c_str(), &endptr, base);
+    if (errno == ERANGE)
+        return { Better_Strtoll_Result::Error_Kind::Out_Of_Range };
+
+    if (*endptr != '\0')
+        return { Better_Strtoll_Result::Error_Kind::Garbage_On_The_End,
+                 *endptr };
+
+    return {
+        Better_Strtoll_Result::Error_Kind::Ok,
+        num,
+    };
+}
+// }}}
+
+// {{{
 struct Location {
     std::filesystem::path file_path { };
     u64 row { 0 };
@@ -475,32 +507,105 @@ struct Lexer {
                 do {
                     text.push_back(c);
                     advance();
-                } while (c && std::isdigit(c));
+                } while (c && std::isdigit(c) && c != '#');
 
-                if (!std::isspace(c)) {
-                    do {
-                        text.push_back(c);
-                        advance();
-                    } while (c && !std::isspace(c));
-                    toks.emplace_back(start_loc, Token::Kind::Ident, text);
+                if (c == '#') { // `text` is base
+                    // consume #
+                    text.push_back(c);
+                    advance();
+                    if (std::isalnum(c)) {
+                        std::string num_str;
+                        do {
+                            text.push_back(c);
+                            num_str.push_back(c);
+                            advance();
+                        } while (c && std::isalnum(c));
+
+                        const auto base
+                            = better_strtoll(text.substr(0, text.find('#')));
+
+                        if (base.error
+                            == Better_Strtoll_Result::Error_Kind::
+                                Garbage_On_The_End) {
+                            std::println(stderr,
+                                         "{}: error: unexpected character {}",
+                                         loc,
+                                         static_cast<char>(base.value));
+                            std::exit(3);
+                        }
+
+                        if (!(base.value >= 2 && base.value <= 36)) {
+                            std::println(stderr,
+                                         "{}: error: invalid base {}, accepted "
+                                         "number literal base range is [2, 36]",
+                                         start_loc,
+                                         base.value);
+                            std::exit(3);
+                        }
+
+                        const auto num = better_strtoll(num_str, base.value);
+                        if (num.error
+                            == Better_Strtoll_Result::Error_Kind::
+                                Out_Of_Range) {
+                            std::println(
+                                stderr,
+                                "{}: error: number out of range (accepted "
+                                "range [{}, {}])",
+                                start_loc,
+                                std::numeric_limits<decltype(num.value)>::min(),
+                                std::numeric_limits<
+                                    decltype(num.value)>::max());
+                            std::exit(3);
+                        }
+
+                        if (num.error
+                            == Better_Strtoll_Result::Error_Kind::
+                                Garbage_On_The_End) {
+                            std::println(stderr,
+                                         "{}: error: unexpected character {} "
+                                         "in a number of base {}",
+                                         start_loc,
+                                         num.value,
+                                         base.value);
+                            std::exit(3);
+                        }
+
+                        toks.emplace_back(start_loc,
+                                          Token::Kind::Number,
+                                          text,
+                                          num.value);
+                    } else {
+                        do {
+                            text.push_back(c);
+                            advance();
+                        } while (c && !std::isspace(c));
+
+                        toks.emplace_back(start_loc, Token::Kind::Ident, text);
+                    }
+                } else if (!std::isspace(c)) {
+                    std::println(stderr,
+                                 "{}: error: unexpected character {}",
+                                 loc,
+                                 c);
+                    std::exit(3);
                 } else {
-                    errno = 0;
-                    const s64 num = std::strtoll(text.c_str(), nullptr, 10);
-                    if (errno == ERANGE) {
+                    char* endptr = nullptr;
+                    const s64 num = std::strtoll(text.c_str(), &endptr, 10);
+
+                    if (*endptr != '\0') {
                         std::println(stderr,
-                                     "{}: error: number out of range (accepted "
-                                     "range [{}, {}])",
-                                     start_loc,
-                                     std::numeric_limits<decltype(num)>::min(),
-                                     std::numeric_limits<decltype(num)>::max());
+                                     "{}: error: unexpected character {}",
+                                     loc,
+                                     c);
                         std::exit(3);
                     }
+
                     toks.emplace_back(start_loc,
                                       Token::Kind::Number,
                                       text,
                                       num);
                 }
-            } else if (!std::isspace(c)) {
+            } else if (std::isprint(c)) {
                 std::string text;
 
                 do {
@@ -508,11 +613,10 @@ struct Lexer {
                     advance();
                 } while (c && !std::isspace(c));
 
-                if (keywords.contains(text)) {
+                if (keywords.contains(text))
                     toks.emplace_back(start_loc, keywords.at(text), text);
-                } else {
+                else
                     toks.emplace_back(start_loc, Token::Kind::Ident, text);
-                }
             } else {
                 std::println(stderr,
                              "{}: error: unexpected character {}",

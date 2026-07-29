@@ -1,0 +1,13 @@
+link "c"
+
+proc main {
+    1377 // basic number in base-10
+
+    // <base>#<num>, where <base> is in range [2, 36]
+    2#1001 // 9 in base-2
+
+    // bases bigger than 10 allow both uppercase and lowercase latin letters
+    16#ff // 255 in base-16
+    // mixing cases is allowed
+    36#Labs // 993160 in base-36
+}
