@@ -181,6 +181,7 @@ struct std::formatter<Location> {
 // {{{
 
 struct Token {
+    using As = std::variant<s64, std::string>;
     Location loc;
     enum struct Kind {
         Proc,
@@ -228,6 +229,7 @@ struct Token {
         Store8,
     } kind;
     std::string text;
+    As as;
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
@@ -407,17 +409,56 @@ struct Lexer {
             } else if (c == '/' && peek() == '/') {
                 do
                     advance();
-                while (c != '\n');
+                while (c && c != '\n');
             } else if (c == '"') {
                 std::string text;
-                advance(); // consume opening "
+                std::string str;
 
-                do {
+                // consume opening "
+                text.push_back(c);
+                advance();
+
+                while (c && c != '"') {
                     text.push_back(c);
+
+                    if (c == '\\') { // TODO: more escapes
+                        if (peek() == 'n')
+                            str.push_back('\n');
+                        else if (peek() == 'r')
+                            str.push_back('\r');
+                        else if (peek() == 't')
+                            str.push_back('\t');
+                        else if (peek() == 'v')
+                            str.push_back('\v');
+                        else if (peek() == 'f')
+                            str.push_back('\f');
+                        else if (peek() == 'a')
+                            str.push_back('\a');
+                        else if (peek() == 'b')
+                            str.push_back('\b');
+                        else if (peek() == '\\')
+                            str.push_back('\\');
+                        else if (peek() == '0')
+                            str.push_back('\0');
+                        else {
+                            std::println(
+                                stderr,
+                                "{}: error: unknown string escape character {}",
+                                start_loc,
+                                peek());
+                            std::exit(3);
+                        }
+
+                        advance();
+                        text.push_back(c);
+                    } else
+                        str.push_back(c);
+
                     advance();
-                } while (c != '"');
+                }
 
                 // consume closing "
+                text.push_back(c);
                 advance();
 
                 if (!std::isspace(c)) {
@@ -427,23 +468,37 @@ struct Lexer {
                     std::exit(3);
                 }
 
-                toks.emplace_back(start_loc, Token::Kind::String, text);
+                toks.emplace_back(start_loc, Token::Kind::String, text, str);
             } else if ((c == '-' && std::isdigit(peek())) || std::isdigit(c)) {
                 std::string text;
 
                 do {
                     text.push_back(c);
                     advance();
-                } while (std::isdigit(c));
+                } while (c && std::isdigit(c));
 
                 if (!std::isspace(c)) {
                     do {
                         text.push_back(c);
                         advance();
-                    } while (!std::isspace(c));
+                    } while (c && !std::isspace(c));
                     toks.emplace_back(start_loc, Token::Kind::Ident, text);
                 } else {
-                    toks.emplace_back(start_loc, Token::Kind::Number, text);
+                    errno = 0;
+                    const s64 num = std::strtoll(text.c_str(), nullptr, 10);
+                    if (errno == ERANGE) {
+                        std::println(stderr,
+                                     "{}: error: number out of range (accepted "
+                                     "range [{}, {}])",
+                                     start_loc,
+                                     std::numeric_limits<decltype(num)>::min(),
+                                     std::numeric_limits<decltype(num)>::max());
+                        std::exit(3);
+                    }
+                    toks.emplace_back(start_loc,
+                                      Token::Kind::Number,
+                                      text,
+                                      num);
                 }
             } else if (!std::isspace(c)) {
                 std::string text;
@@ -451,7 +506,7 @@ struct Lexer {
                 do {
                     text.push_back(c);
                     advance();
-                } while (!std::isspace(c));
+                } while (c && !std::isspace(c));
 
                 if (keywords.contains(text)) {
                     toks.emplace_back(start_loc, keywords.at(text), text);
@@ -669,8 +724,9 @@ struct Parser {
         return std::make_optional(tok);
     }
 
-    std::optional<Token>
-    expect(const Token& self, std::set<Token::Kind> kinds, bool consume = true)
+    std::optional<Token> expect(const Token& self,
+                                const std::set<Token::Kind>& kinds,
+                                bool consume = true)
     {
         const auto kind_strings
             = kinds
@@ -690,7 +746,7 @@ struct Parser {
 
         if (!kinds.contains(tok.kind)) {
             error(tok.loc,
-                  "expected {:s}, but got {}",
+                  "expected {}, but got {}",
                   ored_kinds,
                   human(tok.kind));
             return std::nullopt;
@@ -776,7 +832,7 @@ struct Parser {
             return false;
         }
 
-        linker_libs.push_back(lib_name->text);
+        linker_libs.push_back(std::get<std::string>(lib_name->as));
 
         return true;
     }
@@ -804,7 +860,7 @@ struct Parser {
             = expect(self, { Token::Kind::Then, Token::Kind::Else }, !elif);
 
         if (!else_or_then_tok.has_value()) {
-            error(else_or_then_tok->loc, "unclosed {} block", block_name);
+            error(self.loc, "unclosed {} block", block_name);
             return false;
         }
 
@@ -907,16 +963,6 @@ struct Parser {
 
         // TODO: calling convention
 
-        errno = 0;
-        const s64 num = std::strtoll(arity->text.c_str(), nullptr, 10);
-        if (errno == ERANGE) {
-            error(arity->loc,
-                  "number out of range (accepted range [{}, {}])",
-                  std::numeric_limits<decltype(num)>::min(),
-                  std::numeric_limits<decltype(num)>::max());
-            return false;
-        }
-
         if (!expect(self, Token::Kind::Semicolon).has_value()) {
             note(self.loc, "to end this `extern` construction");
             return false;
@@ -941,7 +987,9 @@ struct Parser {
 
         extern_procs.emplace(
             proc_name->text,
-            Extern_Proc { self, proc_name->text, static_cast<u64>(num) });
+            Extern_Proc { self,
+                          proc_name->text,
+                          static_cast<u64>(std::get<s64>(arity->as)) });
 
         return true;
     }
@@ -979,17 +1027,7 @@ struct Parser {
                 return false;
             }
 
-            errno = 0;
-            const s64 num = std::strtoll(t.text.c_str(), nullptr, 10);
-            if (errno == ERANGE) {
-                error(t.loc,
-                      "number out of range (accepted range [{}, {}])",
-                      std::numeric_limits<decltype(num)>::min(),
-                      std::numeric_limits<decltype(num)>::max());
-                return false;
-            }
-
-            ops.emplace_back(t, Op::Kind::Push_Int, num);
+            ops.emplace_back(t, Op::Kind::Push_Int, std::get<s64>(t.as));
             toks.pop_back();
         } break;
         case Token::Kind::Ident:
@@ -1021,7 +1059,7 @@ struct Parser {
                 return false;
             }
             break;
-        case Token::Kind::String:
+        case Token::Kind::String: {
             if (current_proc_name.empty()) {
                 error(t.loc,
                       "pushing strings onto the stack only allowed inside of "
@@ -1030,15 +1068,17 @@ struct Parser {
                 return false;
             }
 
+            const auto str = std::get<std::string>(t.as);
+
             ops.emplace_back(t,
                              Op::Kind::Push_Int,
-                             static_cast<s64>(t.text.size()));
+                             static_cast<s64>(str.size()));
             ops.emplace_back(t,
                              Op::Kind::Push_Str,
                              static_cast<s64>(strings.size()));
-            strings.push_back(t.text);
+            strings.push_back(str);
             toks.pop_back();
-            break;
+        } break;
         case Token::Kind::If:
             if (current_proc_name.empty()) {
                 error(t.loc,
