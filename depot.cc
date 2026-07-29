@@ -842,10 +842,7 @@ struct Parser {
         return true;
     }
 
-    inline bool parse_elif(std::vector<Op>& ops)
-    {
-        return parse_if(ops, true);
-    }
+    inline bool parse_elif(std::vector<Op>& ops) { return parse_if(ops, true); }
 
     bool parse_while(std::vector<Op>& ops)
     {
