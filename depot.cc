@@ -1342,7 +1342,6 @@ struct Parser {
             toks.pop_back();
             break;
         case Token::Kind::Elif:
-            todo("`elif` is not implemented yet");
         case Token::Kind::Else:
         case Token::Kind::Then:
         case Token::Kind::Open_Curly:
