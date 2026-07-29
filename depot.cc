@@ -192,6 +192,8 @@ struct Token {
         String,
 
         If,
+        Else,
+        Elif,
         Then,
         While,
 
@@ -241,7 +243,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
 
     { "extern", Token::Kind::Extern },  { ";", Token::Kind::Semicolon },
 
-    { "if", Token::Kind::If },          { "then", Token::Kind::Then },
+    { "if", Token::Kind::If },          { "else", Token::Kind::Else },
+    { "elif", Token::Kind::Elif },      { "then", Token::Kind::Then },
     { "while", Token::Kind::While },
 
     { "=", Token::Kind::Equal },        { "!=", Token::Kind::Not_Equal },
@@ -273,6 +276,10 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "strings" : "a string";
     case Token::Kind::If:
         return plural ? "`if` keywords" : "`if` keyword";
+    case Token::Kind::Else:
+        return plural ? "`else` keywords" : "`else` keyword";
+    case Token::Kind::Elif:
+        return plural ? "`elif` keywords" : "`elif` keyword";
     case Token::Kind::Then:
         return plural ? "`then` keywords" : "`then` keyword";
     case Token::Kind::While:
@@ -639,7 +646,7 @@ struct Parser {
         std::println(text, args...);
     }
 
-    std::optional<Token> expect(const Token& self, Token::Kind kind)
+    std::optional<Token> expect(const Token& self, Token::Kind kind, bool consume = true)
     {
         if (toks.size() <= 0) {
             error(self.loc, "expected {}, but got nothing", human(kind));
@@ -647,7 +654,8 @@ struct Parser {
         }
 
         Token tok = toks.back();
-        toks.pop_back();
+        if (consume)
+            toks.pop_back();
 
         if (tok.kind != kind) {
             error(tok.loc,
@@ -660,7 +668,7 @@ struct Parser {
         return std::make_optional(tok);
     }
 
-    std::optional<Token> expect(const Token& self, std::set<Token::Kind> kinds)
+    std::optional<Token> expect(const Token& self, std::set<Token::Kind> kinds, bool consume = true)
     {
         const auto kind_strings
             = kinds
@@ -675,7 +683,8 @@ struct Parser {
         }
 
         Token tok = toks.back();
-        toks.pop_back();
+        if (consume)
+            toks.pop_back();
 
         if (!kinds.contains(tok.kind)) {
             error(tok.loc,
@@ -777,17 +786,43 @@ struct Parser {
 
         const auto jump_if_index = ops.size();
         ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
-        while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
+        while (!toks.empty() && toks.back().kind != Token::Kind::Then
+               && toks.back().kind != Token::Kind::Else) {
             if (!parse_token(ops, toks.back())) {
                 note(self.loc, "inside of this if block");
                 return false;
             }
         }
-        if (!expect(self, Token::Kind::Then)) {
-            error(self.loc, "unclosed if block");
+
+        const auto else_or_then_tok
+            = expect(self, { Token::Kind::Then, Token::Kind::Else });
+
+        if (!else_or_then_tok.has_value()) {
+            error(else_or_then_tok->loc, "unclosed if block");
             return false;
         }
-        ops[jump_if_index].as = static_cast<s64>(ops.size());
+
+        if (else_or_then_tok->kind == Token::Kind::Else) {
+            const auto jump_index = ops.size();
+            ops.emplace_back(self, Op::Kind::Jump, 1337);
+            ops[jump_if_index].as = static_cast<s64>(ops.size());
+
+            while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
+                if (!parse_token(ops, toks.back())) {
+                    note(else_or_then_tok->loc, "inside of this else branch");
+                    note(self.loc, "inside of this if block");
+                    return false;
+                }
+            }
+            if (!expect(self, Token::Kind::Then)) {
+                error(else_or_then_tok->loc, "unclosed else branch");
+                note(self.loc, "of this if block");
+                return false;
+            }
+            ops[jump_index].as = static_cast<s64>(ops.size());
+        } else { // else_or_then_tok->kind == Token::Kind::Then
+            ops[jump_if_index].as = static_cast<s64>(ops.size());
+        }
 
         return true;
     }
@@ -1286,6 +1321,9 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Store8);
             toks.pop_back();
             break;
+        case Token::Kind::Elif:
+            todo("`elif` is not implemented yet");
+        case Token::Kind::Else:
         case Token::Kind::Then:
         case Token::Kind::Open_Curly:
         case Token::Kind::Semicolon:
