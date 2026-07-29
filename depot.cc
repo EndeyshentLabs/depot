@@ -119,8 +119,8 @@ static void execute_command(const std::vector<std::string>& cmd_line)
                 break;
             } else if (WIFSIGNALED(wstatus)) {
                 std::println("cmd: child process was killed with signal {}",
-                             WEXITSTATUS(wstatus));
-                std::exit(WEXITSTATUS(wstatus));
+                             WTERMSIG(wstatus));
+                std::exit(WTERMSIG(wstatus));
             }
         } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
     }
