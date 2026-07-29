@@ -1,0 +1,34 @@
+link "c"
+
+extern proc puts 1 ;
+extern proc putchar 1 ;
+extern proc printf 2 ;
+
+proc >cstr {
+    swap drop
+}
+
+proc print {
+    >cstr puts drop
+}
+
+proc printn {
+    "%d" >cstr swap printf drop
+}
+
+proc main {
+    1 while dup 100 <= {
+        dup 15 mod 0 = if
+            "FizzBuzz" print
+        else dup 3 mod 0 = if
+            "Fizz" print
+        else dup 5 mod 0 = if
+            "Buzz" print
+        else
+            dup printn 10 putchar drop
+        then then then
+
+        1 +
+    }
+    drop
+}
