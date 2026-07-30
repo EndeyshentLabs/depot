@@ -236,6 +236,7 @@ struct Token {
         Drop,
         Dup,
         Swap,
+        Rot,
         Over,
         Plus,
         Minus,
@@ -269,7 +270,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "{", Token::Kind::Open_Curly },   { "}", Token::Kind::Close_Curly },
 
     { "drop", Token::Kind::Drop },      { "dup", Token::Kind::Dup },
-    { "swap", Token::Kind::Swap },      { "over", Token::Kind::Over },
+    { "swap", Token::Kind::Swap },      { "rot", Token::Kind::Rot },
+    { "over", Token::Kind::Over },
 
     { "+", Token::Kind::Plus },         { "-", Token::Kind::Minus },
     { "*", Token::Kind::Mult },         { "/", Token::Kind::Div },
@@ -325,11 +327,13 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
     case Token::Kind::Drop:
         return plural ? "`drop` keywords" : "`drop` keyword";
     case Token::Kind::Dup:
-        return plural ? "`drop` keywords" : "`drop` keyword";
+        return plural ? "`dup` keywords" : "`dup` keyword";
     case Token::Kind::Swap:
-        return plural ? "`drop` keywords" : "`drop` keyword";
+        return plural ? "`swap` keywords" : "`swap` keyword";
+    case Token::Kind::Rot:
+        return plural ? "`rot` keywords" : "`rot` keyword";
     case Token::Kind::Over:
-        return plural ? "`drop` keywords" : "`drop` keyword";
+        return plural ? "`over` keywords" : "`over` keyword";
     case Token::Kind::Plus:
         return "`+`";
     case Token::Kind::Minus:
@@ -654,6 +658,7 @@ struct Op {
         Drop, // no operand (0 as int64)
         Dup, // no operand (0 as int64)
         Swap, // no operand (0 as int64)
+        Rot, // no operand (0 as int64)
         Over, // no operand (0 as int64)
         Plus, // no operand (0 as int64)
         Minus, // no operand (0 as int64)
@@ -707,6 +712,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Dup";
     case Op::Kind::Swap:
         return "Swap";
+    case Op::Kind::Rot:
+        return "Rot";
     case Op::Kind::Over:
         return "Over";
     case Op::Kind::Plus:
@@ -1248,6 +1255,17 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Swap);
             toks.pop_back();
             break;
+        case Token::Kind::Rot:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`rot` is only allowed inside of "
+                      "procedure bodies");
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Rot);
+            toks.pop_back();
+            break;
         case Token::Kind::Over:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -1667,6 +1685,14 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tpushq %rax\n";
                 out << "\tpushq %rcx\n";
+                break;
+            case Op::Kind::Rot:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rdx\n";
+                out << "\tpushq %rax\n";
+                out << "\tpushq %rcx\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Over:
                 out << "\tpopq %rax\n";

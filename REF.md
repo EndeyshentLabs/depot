@@ -80,6 +80,10 @@ Signature: `x -- x x`
 
 Signature: `x y -- y x`
 
+- `rot` -- exchange the top three elements
+
+Signature: `x y z -- z y x`
+
 - `over` -- place a copy of an element below the top on the top
 
 Signature: `x y - x y x`
