@@ -771,7 +771,6 @@ struct Type {
 
 static const std::unordered_map<std::string, Type> builtin_types = {
     { "int64", Type { "int64", 8 } },
-    { "int64", Type { "int64", 8 } },
     { "ptr", Type { "ptr", 8 } },
 };
 
