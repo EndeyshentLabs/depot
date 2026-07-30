@@ -1,13 +1,13 @@
 link "c"
 
-extern proc printf 2 ;
+extern proc printf ptr ptr -- ;
 
 proc >cstr { swap drop }
 
 proc print {
     >cstr
     "%s" >cstr
-    swap printf drop
+    swap printf
 }
 
 proc main {

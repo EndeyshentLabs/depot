@@ -1,10 +1,10 @@
 link "c"
 
-extern proc puts 1 ;
+extern proc puts ptr -- ;
 
 proc main {
     0 while dup 10 < {
-        "Hello!" swap drop puts drop
+        "Hello!" swap drop puts
         1 +
     }
     drop

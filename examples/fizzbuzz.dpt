@@ -1,19 +1,19 @@
 link "c"
 
-extern proc puts 1 ;
-extern proc putchar 1 ;
-extern proc printf 2 ;
+extern proc puts ptr -- ;
+extern proc putchar int64 -- ;
+extern proc printf ptr int64 -- ; // NOTE: add `poly` type
 
 proc >cstr {
     swap drop
 }
 
 proc print {
-    >cstr puts drop
+    >cstr puts
 }
 
 proc printn {
-    "%d" >cstr swap printf drop
+    "%d" >cstr swap printf
 }
 
 proc main {
@@ -25,7 +25,7 @@ proc main {
         else dup 5 mod 0 = elif
             "Buzz" print
         else
-            dup printn 10 putchar drop
+            dup printn 10 putchar
         then
 
         1 +

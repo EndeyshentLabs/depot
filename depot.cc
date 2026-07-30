@@ -233,6 +233,8 @@ struct Token {
         Extern,
         Semicolon, // TODO: better name?
 
+        Sig_Delimit,
+
         Drop,
         Dup,
         Swap,
@@ -278,6 +280,7 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "mod", Token::Kind::Mod },
 
     { "extern", Token::Kind::Extern },  { ";", Token::Kind::Semicolon },
+    { "--", Token::Kind::Sig_Delimit },
 
     { "if", Token::Kind::If },          { "else", Token::Kind::Else },
     { "elif", Token::Kind::Elif },      { "then", Token::Kind::Then },
@@ -323,7 +326,9 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
     case Token::Kind::Extern:
         return plural ? "`extern` keywords" : "`extern` keyword";
     case Token::Kind::Semicolon:
-        return ";";
+        return "`;`";
+    case Token::Kind::Sig_Delimit:
+        return "`--`";
     case Token::Kind::Drop:
         return plural ? "`drop` keywords" : "`drop` keyword";
     case Token::Kind::Dup:
@@ -759,16 +764,33 @@ static constexpr std::string_view human(Op::Kind kind)
     }
 }
 
+struct Type {
+    std::string name;
+    u64 size_of;
+};
+
+static const std::unordered_map<std::string, Type> builtin_types = {
+    { "int64", Type { "int64", 8 } },
+    { "int64", Type { "int64", 8 } },
+    { "ptr", Type { "ptr", 8 } },
+};
+
+struct Type_Sig {
+    std::vector<Type> input_types;
+    std::vector<Type> return_types;
+};
+
 struct Proc {
     Token tok;
     std::string name;
     s64 op_index;
+    Type_Sig sig;
 };
 
 struct Extern_Proc {
     Token tok;
     std::string name;
-    u64 arity;
+    Type_Sig sig;
     // TODO: calling convention
 };
 
@@ -793,6 +815,25 @@ struct Parser {
         : toks { toks.size() }
     {
         this->toks.assign_range(std::ranges::reverse_view(toks));
+    }
+
+    enum struct Name_Availabilty {
+        Available,
+        Exists_Proc,
+        Exists_Extern_Proc,
+        Exists_Builtin_Type,
+    };
+
+    Name_Availabilty is_name_available(const std::string& name)
+    {
+        if (procs.contains(name))
+            return Name_Availabilty::Exists_Proc;
+        if (extern_procs.contains(name))
+            return Name_Availabilty::Exists_Extern_Proc;
+        if (builtin_types.contains(name))
+            return Name_Availabilty::Exists_Builtin_Type;
+
+        return Name_Availabilty::Available;
     }
 
     template <typename... Args>
@@ -866,6 +907,66 @@ struct Parser {
         return std::make_optional(tok);
     }
 
+    std::optional<Type_Sig> parse_type_sig(const Token& self)
+    {
+        if (toks.empty()) {
+            error(self.loc, "expected type signature, but got nothing");
+            return std::nullopt;
+        }
+
+        bool return_type_mode = false;
+        Location delimit_loc { };
+
+        Type_Sig result;
+        while (!toks.empty() && toks.back().kind != Token::Kind::Open_Curly
+               && toks.back().kind != Token::Kind::Semicolon) {
+            const auto tok = toks.back();
+            toks.pop_back();
+
+            if (tok.kind == Token::Kind::Sig_Delimit) {
+                if (return_type_mode) {
+                    error(tok.loc,
+                          "duplicate {}",
+                          human(Token::Kind::Sig_Delimit));
+                    note(delimit_loc, "previous was found there");
+                    return std::nullopt;
+                }
+
+                delimit_loc = tok.loc;
+                return_type_mode = true;
+                continue;
+            }
+
+            if (tok.kind != Token::Kind::Ident) {
+                error(tok.loc,
+                      "expected type name as {}, but got {}",
+                      human(Token::Kind::Ident),
+                      human(tok.kind));
+                return std::nullopt;
+            }
+
+            if (!builtin_types.contains(tok.text)) {
+                error(tok.loc, "unknown type {}", tok.text);
+                return std::nullopt;
+            }
+
+            if (return_type_mode) {
+                result.return_types.push_back(builtin_types.at(tok.text));
+            } else {
+                result.input_types.push_back(builtin_types.at(tok.text));
+            }
+        }
+
+        if (!expect(self,
+                    { Token::Kind::Open_Curly, Token::Kind::Semicolon },
+                    false)) {
+            error(self.loc, "unterminated type signature");
+            return std::nullopt;
+        }
+
+        return std::make_optional(result);
+    }
+
     bool parse_proc(std::vector<Op>& ops)
     {
         const auto self = toks.back();
@@ -877,33 +978,49 @@ struct Parser {
             return false;
         }
 
+        const auto sig = parse_type_sig(self);
+        if (!sig) {
+            note(self.loc, "for this procedure definition");
+            return false;
+        }
+
         const auto open_curly = expect(self, Token::Kind::Open_Curly);
         if (!open_curly) {
             note(self.loc, "for this procedure definition");
             return false;
         }
 
-        if (procs.contains(proc_name->text)) {
+        switch (is_name_available(proc_name->text)) {
+        case Name_Availabilty::Exists_Proc:
             error(self.loc,
                   "redefinition of procedure \"{}\"",
                   proc_name->text);
             note(procs.at(proc_name->text).tok.loc, "previously defined here");
             return false;
-        }
-
-        if (extern_procs.contains(proc_name->text)) {
+        case Name_Availabilty::Exists_Extern_Proc:
             error(self.loc,
                   "procedure name shadows external procedure \"{}\"",
                   proc_name->text);
             note(extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
+        case Name_Availabilty::Exists_Builtin_Type:
+            error(self.loc,
+                  "procedure name shadows builtin type \"{}\"",
+                  proc_name->text);
+            return false;
+        case Name_Availabilty::Available:
+            break;
+        default:
+            std::unreachable();
         }
 
         current_proc_name = proc_name->text;
-        procs.emplace(
-            proc_name->text,
-            Proc { self, proc_name->text, static_cast<s64>(ops.size()) });
+        procs.emplace(proc_name->text,
+                      Proc { self,
+                             proc_name->text,
+                             static_cast<s64>(ops.size()),
+                             sig.value() });
         ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
@@ -1066,9 +1183,9 @@ struct Parser {
             return false;
         }
 
-        const auto arity = expect(self, Token::Kind::Number);
-        if (!arity.has_value()) {
-            note(self.loc, "as arity for this `extern` construction");
+        const auto sig = parse_type_sig(self);
+        if (!sig.has_value()) {
+            note(self.loc, "for this `extern` construction");
             return false;
         }
 
@@ -1079,28 +1196,34 @@ struct Parser {
             return false;
         }
 
-        if (extern_procs.contains(proc_name->text)) {
+        switch (is_name_available(proc_name->text)) {
+        case Name_Availabilty::Exists_Proc:
+            error(self.loc,
+                  "external procedure name shadows procedure \"{}\"",
+                  proc_name->text);
+            note(procs.at(proc_name->text).tok.loc, "previously defined here");
+            return false;
+        case Name_Availabilty::Exists_Extern_Proc:
             error(self.loc,
                   "redefinition of extern procedure \"{}\"",
                   proc_name->text);
             note(extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
-        }
-
-        if (procs.contains(proc_name->text)) {
+        case Name_Availabilty::Exists_Builtin_Type:
             error(self.loc,
-                  "external procedure name shadows procedure \"{}\"",
+                  "external procedure name shadows builtin type \"{}\"",
                   proc_name->text);
-            note(procs.at(proc_name->text).tok.loc, "previously defined here");
             return false;
+        case Name_Availabilty::Available:
+            break;
+        default:
+            std::unreachable();
         }
 
         extern_procs.emplace(
             proc_name->text,
-            Extern_Proc { self,
-                          proc_name->text,
-                          static_cast<u64>(std::get<s64>(arity->as)) });
+            Extern_Proc { self, proc_name->text, sig.value() });
 
         return true;
     }
@@ -1505,6 +1628,7 @@ struct Parser {
         case Token::Kind::Then:
         case Token::Kind::Open_Curly:
         case Token::Kind::Semicolon:
+        case Token::Kind::Sig_Delimit:
         case Token::Kind::Close_Curly:
             error(t.loc, "unexpected {}", human(t.kind));
             toks.pop_back();
@@ -1615,13 +1739,15 @@ namespace x86_64 {
                        "wasn't registered by parser");
                 const auto proc = ctx.extern_procs.at(proc_name);
 
-                switch (proc.arity) {
+                const u64 arity = proc.sig.input_types.size();
+                const u64 ret_arity = proc.sig.return_types.size();
+                switch (arity) {
                 default:
                     std::println(stderr,
                                  "{}: error: incorrect arity {} for x86_64 "
                                  "target, should be [0, 6]",
                                  op.tok.loc,
-                                 proc.arity);
+                                 arity);
                     std::println("{}: note: this extern procedure",
                                  proc.tok.loc);
                     std::exit(5);
@@ -1653,7 +1779,20 @@ namespace x86_64 {
                 out << "\tcall " << proc_name << '\n';
                 out << "\tmovq %rsp, _depot_saved_rsp\n";
                 out << "\tmovq %r12, %rsp\n";
-                out << "\tpushq %rax\n";
+
+                if (ret_arity == 1) {
+                    out << "\tpushq %rax\n";
+                } else if (ret_arity != 0) {
+                    std::println(
+                        stderr,
+                        "{}: error: incorrect return arity {} for x86_64 "
+                        "target, should be [0, 1]",
+                        op.tok.loc,
+                        ret_arity);
+                    std::println("{}: note: this extern procedure",
+                                 proc.tok.loc);
+                    std::exit(5);
+                }
             } break;
             case Op::Kind::Push_Int:
                 out << "\tmovq $" << std::get<s64>(op.as) << ", %rax\n";
