@@ -1,7 +1,7 @@
 link "c"
 
-extern proc puts 1 ;
+extern proc puts ptr -- ;
 
 proc main {
-    "Hello, World!" swap drop puts drop 0
+    "Hello, World!" swap drop puts 0
 }
