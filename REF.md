@@ -2,7 +2,7 @@
 
 ## Datatypes
 
-- signed 64 bit integer value
+- signed 64 bit integer value (`int64`)
 
 ```depot
 1337 // STACK: 1337:int64
@@ -12,10 +12,17 @@
 16#CaFe // STACK: 1337:int64 9:int64 51966:int64
 ```
 
-- string
+- string (`int64 ptr`)
 
 ```depot
 "Hello, World!" // STACK: length:int64 mem:ptr
+```
+
+- logical/boolean (`bool`)
+
+```depot
+true // STACK: true:bool
+false // STACK: true:bool false:bool
 ```
 
 ## Built-in Words

@@ -271,6 +271,9 @@ struct Token {
         To_Int64,
         To_Ptr,
         To_Bool,
+
+        True,
+        False,
     } kind;
     std::string text;
     As as;
@@ -306,6 +309,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
 
     { ">int64", Token::Kind::To_Int64 }, { ">ptr", Token::Kind::To_Ptr },
     { ">bool", Token::Kind::To_Bool },
+
+    { "true", Token::Kind::True },       { "false", Token::Kind::False },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -395,6 +400,11 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "casts to a ptr" : "cast to a ptr";
     case Token::Kind::To_Bool:
         return plural ? "casts to a bool" : "cast to a bool";
+    case Token::Kind::True:
+        return plural ? "`true` keyword-constants" : "`true` keyword-constant";
+    case Token::Kind::False:
+        return plural ? "`false` keyword-constants"
+                      : "`false` keyword-constant";
     default:
         std::unreachable();
     }
@@ -1756,6 +1766,32 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
+            ops.emplace_back(t, Op::Kind::To_Bool);
+            toks.pop_back();
+            break;
+        case Token::Kind::True:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Push_Int, 1);
+            ops.emplace_back(t, Op::Kind::To_Bool);
+            toks.pop_back();
+            break;
+        case Token::Kind::False:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::Push_Int, 0);
             ops.emplace_back(t, Op::Kind::To_Bool);
             toks.pop_back();
             break;
