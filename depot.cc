@@ -33,7 +33,7 @@
 
 #endif // #ifdef _WIN32
 
-// {{{
+// DEFS {{{
 using u8 = std::uint8_t;
 using u16 = std::uint16_t;
 using u32 = std::uint32_t;
@@ -50,7 +50,7 @@ using f32 = float;
 using f64 = double;
 // }}}
 
-// {{{
+// UTIL {{{
 #define ASSERT(cond, ...)                                                      \
     do {                                                                       \
         if (!(cond)) {                                                         \
@@ -80,7 +80,7 @@ using f64 = double;
 #define TODO() todo(__PRETTY_FUNCTION__)
 // }}}
 
-// {{{
+// EXECUTE COMMAND (execv style) {{{
 static void execute_command(const std::vector<std::string>& cmd_line)
 {
     std::print("cmd:");
@@ -138,7 +138,7 @@ static void execute_command(const std::vector<std::string>& cmd_line)
 }
 // }}}
 
-// {{{
+// PERFORMANCE STOPWATCH {{{
 struct Scoped_Stopwatch {
     const std::chrono::time_point<std::chrono::high_resolution_clock> start;
     const std::string name;
@@ -160,7 +160,7 @@ struct Scoped_Stopwatch {
 };
 // }}}
 
-// {{{
+// {I,O}FSTREAM ERROR CHECKING {{{
 template <typename T>
     requires(std::is_same_v<T, std::ifstream>
              || std::is_same_v<T, std::ofstream>)
@@ -177,7 +177,7 @@ void check_fstream_error(const T& file, std::string_view path)
 }
 // }}}
 
-// {{{
+// BETTER "STRING TO S64" {{{
 struct Better_Strtoll_Result {
     enum struct Error_Kind {
         Ok,
@@ -209,7 +209,7 @@ Better_Strtoll_Result better_strtoll(const std::string& str, s32 base = 10)
 }
 // }}}
 
-// {{{
+// DEPOT SOURCE LOCATION {{{
 struct Location {
     std::filesystem::path file_path { };
     u64 row { 0 };
@@ -237,8 +237,7 @@ struct std::formatter<Location> {
 
 // }}}
 
-// {{{
-
+// LEXER {{{
 struct Token {
     using As = std::variant<s64, std::string>;
     Location loc;
@@ -694,8 +693,7 @@ struct Lexer {
 
 // }}}
 
-// {{{
-
+// PARSER {{{
 struct Op {
     using As = std::variant<s64, std::string>;
 
@@ -1861,7 +1859,7 @@ struct Parser {
 
 // }}}
 
-// {{{
+// CODEGEN {{{
 
 // TODO: should this be inside of codegen namespace?
 enum struct Target {
@@ -2249,7 +2247,7 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 
 // }}}
 
-// {{{
+// TYPECHECKER {{{
 static constexpr Type any_type {
     "any_type",
     0,
