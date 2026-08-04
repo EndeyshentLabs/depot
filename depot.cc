@@ -2185,32 +2185,61 @@ static constexpr Type any_type {
     0,
 };
 
+template <bool enable_logging = true>
+bool ensure_stack_size(const Op& self,
+                       usz have,
+                       usz expect,
+                       bool strict = false)
+{
+    if (!strict) {
+        if (have < expect) {
+            if constexpr (enable_logging)
+                std::println(stderr,
+                             "{}: error: expected {} values on the stack, but "
+                             "only got {}",
+                             self.tok.loc,
+                             expect,
+                             have);
+
+            return false;
+        }
+    } else {
+        if (have != expect) {
+            if constexpr (enable_logging)
+                std::println(
+                    stderr,
+                    "{}: error: expected {} values on the stack, but got {}",
+                    self.tok.loc,
+                    expect,
+                    have);
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
+template <bool enable_logging = true>
+inline bool ensure_stack_size(const Op& self,
+                              std::span<const Type> have,
+                              std::span<const Type> expect,
+                              bool strict = false)
+{
+    return ensure_stack_size<enable_logging>(self,
+                                             have.size(),
+                                             expect.size(),
+                                             strict);
+}
+
+template <bool enable_logging = true>
 bool ensure_stack(const Op& self,
                   std::span<const Type> have,
                   std::span<const Type> expect,
                   bool strict = false)
 {
-    if (!strict) {
-        if (have.size() < expect.size()) {
-            std::println(
-                stderr,
-                "{}: error: expected {} values on the stack, but only got {}",
-                self.tok.loc,
-                expect.size(),
-                have.size());
-            return false;
-        }
-    } else {
-        if (have.size() != expect.size()) {
-            std::println(
-                stderr,
-                "{}: error: expected {} values on the stack, but got {}",
-                self.tok.loc,
-                expect.size(),
-                have.size());
-            return false;
-        }
-    }
+    if (!ensure_stack_size<enable_logging>(self, have, expect, strict))
+        return false;
 
     have = have.subspan(have.size() - expect.size());
 
@@ -2221,19 +2250,30 @@ bool ensure_stack(const Op& self,
         if (expect[i] == any_type)
             continue;
 
-        if (expect[i].name != have[i].name) { // TODO: do not compare the names
-            std::println(stderr,
-                         "{}: error: expected argument {} to be of type `{}`, "
-                         "but got `{}`",
-                         self.tok.loc,
-                         expect.size() - i,
-                         expect[i].name,
-                         have[i].name);
+        if (expect[i] != have[i]) {
+            if constexpr (enable_logging)
+                std::println(
+                    stderr,
+                    "{}: error: expected argument {} to be of type `{}`, "
+                    "but got `{}`",
+                    self.tok.loc,
+                    expect.size() - i,
+                    expect[i].name,
+                    have[i].name);
             return false;
         }
     }
 
     return true;
+}
+
+inline auto typestack_to_string(std::span<const Type> s)
+{
+    return std::views::join_with(
+        std::views::transform(
+            s,
+            [](const Type& t) -> std::string_view { return t.name; }),
+        " ");
 }
 
 bool typecheck(const Da_Thing& ctx)
@@ -2292,19 +2332,17 @@ bool typecheck(const Da_Thing& ctx)
             stack.push_back(ptr_type);
             break;
         case Op::Kind::Drop:
-            if (!ensure_stack(op, stack, std::array<Type, 1> { any_type }))
+            if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
             stack.pop_back();
             break;
         case Op::Kind::Dup:
-            if (!ensure_stack(op, stack, std::array<Type, 1> { any_type }))
+            if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
             stack.push_back(stack.back());
             break;
         case Op::Kind::Swap: {
-            if (!ensure_stack(op,
-                              stack,
-                              std::array<Type, 2> { any_type, any_type }))
+            if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
             const auto top = stack.back();
@@ -2317,10 +2355,7 @@ bool typecheck(const Da_Thing& ctx)
             stack.push_back(below);
         } break;
         case Op::Kind::Rot: {
-            if (!ensure_stack(
-                    op,
-                    stack,
-                    std::array<Type, 3> { any_type, any_type, any_type }))
+            if (!ensure_stack_size(op, stack.size(), 3))
                 return false;
 
             const auto top = stack.back();
@@ -2337,9 +2372,7 @@ bool typecheck(const Da_Thing& ctx)
             stack.push_back(under);
         } break;
         case Op::Kind::Over:
-            if (!ensure_stack(op,
-                              stack,
-                              std::array<Type, 2> { any_type, any_type }))
+            if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
             stack.push_back(stack[stack.size() - 2]);
@@ -2362,10 +2395,24 @@ bool typecheck(const Da_Thing& ctx)
         case Op::Kind::Less_Equal:
         case Op::Kind::Greater_Than:
         case Op::Kind::Greater_Equal:
-            if (!ensure_stack(op,
-                              stack,
-                              std::array<Type, 2> { any_type, any_type }))
+            if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
+
+            if (!ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { int64_type, int64_type })
+                && !ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { ptr_type, ptr_type })) {
+                std::println(stderr,
+                             "{}: error: expected arguments of {} to be `int64 "
+                             "int64` or `ptr ptr`",
+                             op.tok.loc,
+                             human(op.tok.kind));
+                return false;
+            }
 
             stack.pop_back();
             stack.pop_back();
@@ -2421,8 +2468,23 @@ bool typecheck(const Da_Thing& ctx)
             if (blocks.back().second == Op::Kind::If) {
                 const auto expected_stack = blocks.back().first;
                 blocks.pop_back();
-                if (!ensure_stack(op, stack, expected_stack, true))
+
+                if (!ensure_stack<false>(op, stack, expected_stack, true)) {
+                    std::println(
+                        stderr,
+                        "{}: error: stack differs in `if` block branches",
+                        op.tok.loc);
+
+                    std::println("{}: note: got stack: {:s}",
+                                 op.tok.loc,
+                                 typestack_to_string(stack));
+
+                    std::println("{}: note: expected stack: {:s}",
+                                 op.tok.loc,
+                                 typestack_to_string(expected_stack));
+
                     return false;
+                }
             } else if (blocks.back().second == Op::Kind::Else) {
                 std::vector<Typestack> expected_stacks;
 
@@ -2431,50 +2493,86 @@ bool typecheck(const Da_Thing& ctx)
                     blocks.pop_back();
                 } while (!blocks.empty()
                          && blocks.back().second != Op::Kind::If);
-                ASSERT(blocks.back().second == Op::Kind::If, "Compiler Bug");
+
+                ASSERT(
+                    !blocks.empty() && blocks.back().second == Op::Kind::If,
+                    "Compiler Bug: expected to have If block's stack, but "
+                    "something went wrong and we either didn't get anything, "
+                    "or got something that isn't an If block stack");
                 blocks.pop_back(); // original stack from If
+
                 expected_stacks.push_back(stack);
+
                 while (expected_stacks.size() >= 2) {
                     const auto have = expected_stacks.back();
                     expected_stacks.pop_back();
 
-                    if (!ensure_stack(op, have, expected_stacks.back(), true))
+                    if (!ensure_stack<false>(op,
+                                             have,
+                                             expected_stacks.back(),
+                                             true)) {
+                        std::println(
+                            stderr,
+                            "{}: error: stack differs in if block branches",
+                            op.tok.loc);
+
+                        std::println("{}: note: got stack: {:s}",
+                                     op.tok.loc,
+                                     typestack_to_string(have));
+
+                        std::println(
+                            "{}: note: expected stack: {:s}",
+                            op.tok.loc,
+                            typestack_to_string(expected_stacks.back()));
+
                         return false;
+                    }
                 }
 
                 expected_stacks.pop_back();
             } else
                 ASSERT(false,
                        "Compiler Bug: unreachable in typechecker, Then closes "
-                       "bogus operation");
+                       "{} operation and this is not allowed",
+                       human(blocks.back().second));
             break;
         case Op::Kind::End_While: {
             ASSERT(blocks.back().second == Op::Kind::Do,
-                   "Compiler Bug: End_While closes bogus operation in "
-                   "typechecker");
+                   "Compiler Bug: unreachable in typechecker, End_While closes "
+                   "{} operation and this is not allowed",
+                   human(blocks.back().second));
+
             const auto expected_stack = blocks.back().first;
             if (!ensure_stack(op, stack, expected_stack, true))
                 return false;
         } break;
-        case Op::Kind::While:
-            break;
         case Op::Kind::Else_If: {
-            ASSERT(
-                blocks.back().second == Op::Kind::Else
-                    || blocks.back().second == Op::Kind::Else_If,
-                "Compiler Bug: Else_If closes bogus operation in typechecker");
+            ASSERT(blocks.back().second == Op::Kind::Else
+                       || blocks.back().second == Op::Kind::Else_If,
+                   "Compiler Bug: unreachable in typechecker, Else_If closes "
+                   "{} operation and this is not allowed",
+                   human(blocks.back().second));
+
             if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
                 return false;
+
             stack.pop_back();
             blocks.push_back(std::make_pair(stack, op.kind));
+
             const auto original_stack = std::ranges::find_last_if(
                 blocks,
                 [](const std::pair<Typestack, Op::Kind> p) -> bool {
                     return p.second == Op::Kind::If;
                 });
-            ASSERT(original_stack.begin() != blocks.end(), "Compiler Bug");
+
+            ASSERT(original_stack.begin() != blocks.end(),
+                   "Compiler Bug: couldn't find block opened by If when "
+                   "typechecking Else_If");
+
             stack = original_stack.back().first;
         } break;
+        case Op::Kind::While:
+            break;
         }
     }
 
