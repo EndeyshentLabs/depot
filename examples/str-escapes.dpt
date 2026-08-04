@@ -2,9 +2,9 @@ link "c"
 
 extern proc printf ptr ptr -- ;
 
-proc >cstr { swap drop }
+proc >cstr int64 ptr -- ptr { swap drop }
 
-proc print {
+proc print int64 ptr -- {
     >cstr
     "%s" >cstr
     swap printf

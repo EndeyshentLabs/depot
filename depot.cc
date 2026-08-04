@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See bottom of the file for full license text
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -53,7 +54,11 @@ using f64 = double;
 #define ASSERT(cond, ...)                                                      \
     do {                                                                       \
         if (!(cond)) {                                                         \
-            std::print(stderr, "ASSERTION `{}` FAILED: ", #cond);              \
+            std::print(stderr,                                                 \
+                       "{}:{}: ASSERTION `{}` FAILED: ",                       \
+                       __FILE__,                                               \
+                       __LINE__,                                               \
+                       #cond);                                                 \
             std::println(stderr, __VA_ARGS__);                                 \
             std::abort();                                                      \
         }                                                                      \
@@ -262,38 +267,45 @@ struct Token {
         Store32,
         Store16,
         Store8,
+
+        To_Int64,
+        To_Ptr,
+        To_Bool,
     } kind;
     std::string text;
     As as;
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
-    { "proc", Token::Kind::Proc },      { "link", Token::Kind::Link },
-    { "{", Token::Kind::Open_Curly },   { "}", Token::Kind::Close_Curly },
+    { "proc", Token::Kind::Proc },       { "link", Token::Kind::Link },
+    { "{", Token::Kind::Open_Curly },    { "}", Token::Kind::Close_Curly },
 
-    { "drop", Token::Kind::Drop },      { "dup", Token::Kind::Dup },
-    { "swap", Token::Kind::Swap },      { "rot", Token::Kind::Rot },
+    { "drop", Token::Kind::Drop },       { "dup", Token::Kind::Dup },
+    { "swap", Token::Kind::Swap },       { "rot", Token::Kind::Rot },
     { "over", Token::Kind::Over },
 
-    { "+", Token::Kind::Plus },         { "-", Token::Kind::Minus },
-    { "*", Token::Kind::Mult },         { "/", Token::Kind::Div },
+    { "+", Token::Kind::Plus },          { "-", Token::Kind::Minus },
+    { "*", Token::Kind::Mult },          { "/", Token::Kind::Div },
     { "mod", Token::Kind::Mod },
 
-    { "extern", Token::Kind::Extern },  { ";", Token::Kind::Semicolon },
+    { "extern", Token::Kind::Extern },   { ";", Token::Kind::Semicolon },
     { "--", Token::Kind::Sig_Delimit },
 
-    { "if", Token::Kind::If },          { "else", Token::Kind::Else },
-    { "elif", Token::Kind::Elif },      { "then", Token::Kind::Then },
+    { "if", Token::Kind::If },           { "else", Token::Kind::Else },
+    { "elif", Token::Kind::Elif },       { "then", Token::Kind::Then },
     { "while", Token::Kind::While },
 
-    { "=", Token::Kind::Equal },        { "!=", Token::Kind::Not_Equal },
-    { "<", Token::Kind::Less_Than },    { "<=", Token::Kind::Less_Equal },
-    { ">", Token::Kind::Greater_Than }, { ">=", Token::Kind::Greater_Equal },
+    { "=", Token::Kind::Equal },         { "!=", Token::Kind::Not_Equal },
+    { "<", Token::Kind::Less_Than },     { "<=", Token::Kind::Less_Equal },
+    { ">", Token::Kind::Greater_Than },  { ">=", Token::Kind::Greater_Equal },
 
-    { "@64", Token::Kind::Load64 },     { "@32", Token::Kind::Load32 },
-    { "@16", Token::Kind::Load16 },     { "@8", Token::Kind::Load8 },
-    { "!64", Token::Kind::Store64 },    { "!32", Token::Kind::Store32 },
-    { "!16", Token::Kind::Store16 },    { "!8", Token::Kind::Store8 },
+    { "@64", Token::Kind::Load64 },      { "@32", Token::Kind::Load32 },
+    { "@16", Token::Kind::Load16 },      { "@8", Token::Kind::Load8 },
+    { "!64", Token::Kind::Store64 },     { "!32", Token::Kind::Store32 },
+    { "!16", Token::Kind::Store16 },     { "!8", Token::Kind::Store8 },
+
+    { ">int64", Token::Kind::To_Int64 }, { ">ptr", Token::Kind::To_Ptr },
+    { ">bool", Token::Kind::To_Bool },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -377,6 +389,12 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return "`!16`";
     case Token::Kind::Store8:
         return "`!8`";
+    case Token::Kind::To_Int64:
+        return plural ? "casts to an int64" : "cast to an int64";
+    case Token::Kind::To_Ptr:
+        return plural ? "casts to a ptr" : "cast to a ptr";
+    case Token::Kind::To_Bool:
+        return plural ? "casts to a bool" : "cast to a bool";
     default:
         std::unreachable();
     }
@@ -403,7 +421,7 @@ struct Lexer {
             std::println(stderr, "{}: error: Empty file", loc);
             std::println("{}: note: consider adding procedure main", loc);
             std::println("|\t// minimal program:");
-            std::println("|\tlink \"c\"\n|\tproc main {{ 0 }}");
+            std::println("|\tlink \"c\"\n|\tproc main -- int64 {{ 0 }}");
             std::exit(2);
         }
         c = source[cursor];
@@ -418,8 +436,6 @@ struct Lexer {
             c = 0;
             return false;
         }
-        cursor++;
-        c = source[cursor];
 
         if (c == '\n') {
             loc.row++;
@@ -427,6 +443,9 @@ struct Lexer {
         } else {
             loc.col++;
         }
+
+        cursor++;
+        c = source[cursor];
 
         return true;
     }
@@ -650,15 +669,20 @@ struct Op {
     enum struct Kind {
         // Empty, // no operand (0 as int64)
         Proc_Start, // operand(str): procedure name
-        Proc_Return, // no operand (0 as int64)
+        Proc_Return, // operand(str): procedure name
         Proc_Call, // operand(str): procedure name
         Extern_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
 
-        Jump, // operand(int64): op index to jump to
-        Jump_If_Zero, // operand(int64): op index to jump to if top element is
-                      // zero
+        If,
+        Else,
+        Else_If,
+        Then,
+
+        While,
+        Do,
+        End_While,
 
         Drop, // no operand (0 as int64)
         Dup, // no operand (0 as int64)
@@ -687,6 +711,10 @@ struct Op {
         Store32, // no operand (0 as int64)
         Store16, // no operand (0 as int64)
         Store8, // no operand (0 as int64)
+
+        To_Int64, // no operand (0 as int64)
+        To_Ptr, // no operand (0 as int64)
+        To_Bool, // no operand (0 as int64)
     } kind;
 
     As as;
@@ -707,10 +735,20 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Push_Int";
     case Op::Kind::Push_Str:
         return "Push_Str";
-    case Op::Kind::Jump:
-        return "Jump";
-    case Op::Kind::Jump_If_Zero:
-        return "Jump_If_Zero";
+    case Op::Kind::If:
+        return "If";
+    case Op::Kind::Else:
+        return "Else";
+    case Op::Kind::Else_If:
+        return "Else_If";
+    case Op::Kind::Then:
+        return "Then";
+    case Op::Kind::While:
+        return "While";
+    case Op::Kind::Do:
+        return "Do";
+    case Op::Kind::End_While:
+        return "End_While";
     case Op::Kind::Drop:
         return "Drop";
     case Op::Kind::Dup:
@@ -759,6 +797,12 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Store16";
     case Op::Kind::Store8:
         return "Store8";
+    case Op::Kind::To_Int64:
+        return "To_Int64";
+    case Op::Kind::To_Ptr:
+        return "To_Ptr";
+    case Op::Kind::To_Bool:
+        return "To_Bool";
     default:
         std::unreachable();
     }
@@ -767,16 +811,48 @@ static constexpr std::string_view human(Op::Kind kind)
 struct Type {
     std::string name;
     u64 size_of;
+
+    inline bool operator==(const Type& other) const noexcept
+    {
+        return name == other.name && size_of == other.size_of;
+    }
+
+    inline bool operator!=(const Type& other) const noexcept
+    {
+        return !(*this == other);
+    }
+};
+
+template <>
+struct std::hash<Type> {
+    std::size_t operator()(const Type& t) const noexcept
+    {
+        const std::size_t h1 = std::hash<decltype(t.name)> { }(t.name);
+        const std::size_t h2 = std::hash<decltype(t.size_of)> { }(t.size_of);
+        return h1 ^ (h2 << 1);
+    }
 };
 
 static const std::unordered_map<std::string, Type> builtin_types = {
     { "int64", Type { "int64", 8 } },
+    { "bool", Type { "bool", 1 } },
     { "ptr", Type { "ptr", 8 } },
 };
 
 struct Type_Sig {
     std::vector<Type> input_types;
     std::vector<Type> return_types;
+
+    inline bool operator==(const Type_Sig& other) const noexcept
+    {
+        return input_types == other.input_types
+            && return_types == other.return_types;
+    }
+
+    inline bool operator!=(const Type_Sig& other) const noexcept
+    {
+        return !(*this == other);
+    }
 };
 
 struct Proc {
@@ -1034,7 +1110,7 @@ struct Parser {
             return false;
         }
 
-        ops.emplace_back(self, Op::Kind::Proc_Return);
+        ops.emplace_back(self, Op::Kind::Proc_Return, proc_name->text);
 
         current_proc_name = "";
 
@@ -1074,7 +1150,12 @@ struct Parser {
             block_name = "elif";
 
         const auto jump_if_index = ops.size();
-        ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
+
+        if (elif)
+            ops.emplace_back(self, Op::Kind::Else_If, 1337);
+        else
+            ops.emplace_back(self, Op::Kind::If, 1337);
+
         while (!toks.empty() && toks.back().kind != Token::Kind::Then
                && toks.back().kind != Token::Kind::Else) {
             if (!parse_token(ops, toks.back())) {
@@ -1096,7 +1177,7 @@ struct Parser {
                 toks.pop_back();
 
             const auto jump_index = ops.size();
-            ops.emplace_back(self, Op::Kind::Jump, 1337);
+            ops.emplace_back(else_or_then_tok.value(), Op::Kind::Else, 1337);
             ops[jump_if_index].as = static_cast<s64>(ops.size());
 
             while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
@@ -1110,16 +1191,29 @@ struct Parser {
                 }
             }
 
-            if (!elif)
+            if (!elif) {
                 if (!expect(self, Token::Kind::Then)) {
                     error(else_or_then_tok->loc, "unclosed else branch");
                     note(self.loc, "of this {} block", block_name);
                     return false;
                 }
 
+                ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
+            }
+
             ops[jump_index].as = static_cast<s64>(ops.size());
         } else { // else_or_then_tok->kind == Token::Kind::Then
+            if (elif) {
+                error(else_or_then_tok->loc,
+                      "`if` with `elif`, but without final `else`, may cause "
+                      "unknown stack state if all the checks failed");
+                note(self.loc, "last opened `elif` branch");
+                note(else_or_then_tok->loc,
+                     "consider adding `else` branch to resolve the error");
+                return false;
+            }
             ops[jump_if_index].as = static_cast<s64>(ops.size());
+            ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
         }
 
         return true;
@@ -1133,6 +1227,7 @@ struct Parser {
         toks.pop_back();
 
         const s64 cond_op_index = ops.size();
+        ops.emplace_back(self, Op::Kind::While);
         while (!toks.empty() && toks.back().kind != Token::Kind::Open_Curly) {
             if (!parse_token(ops, toks.back())) {
                 note(self.loc, "inside of this while loop body");
@@ -1147,7 +1242,7 @@ struct Parser {
         }
 
         const u64 jump_if_index = ops.size();
-        ops.emplace_back(self, Op::Kind::Jump_If_Zero, 1337);
+        ops.emplace_back(self, Op::Kind::Do, 1337);
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             if (!parse_token(ops, toks.back())) {
                 note(self.loc, "inside of this while loop body");
@@ -1160,7 +1255,7 @@ struct Parser {
             note(open_curly->loc, "opened here");
             return false;
         }
-        ops.emplace_back(self, Op::Kind::Jump, cond_op_index);
+        ops.emplace_back(self, Op::Kind::End_While, cond_op_index);
         ops[jump_if_index].as = static_cast<s64>(ops.size());
 
         return true;
@@ -1622,6 +1717,42 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::Store8);
             toks.pop_back();
             break;
+        case Token::Kind::To_Int64:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::To_Int64);
+            toks.pop_back();
+            break;
+        case Token::Kind::To_Ptr:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::To_Ptr);
+            toks.pop_back();
+            break;
+        case Token::Kind::To_Bool:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ops.emplace_back(t, Op::Kind::To_Bool);
+            toks.pop_back();
+            break;
         case Token::Kind::Elif:
         case Token::Kind::Else:
         case Token::Kind::Then:
@@ -1802,10 +1933,13 @@ namespace x86_64 {
                     << ", %rax\n";
                 out << "\tpushq %rax\n";
                 break;
-            case Op::Kind::Jump:
+            case Op::Kind::Else:
+            case Op::Kind::End_While:
                 out << "\tjmp op_" << std::get<s64>(op.as) << '\n';
                 break;
-            case Op::Kind::Jump_If_Zero:
+            case Op::Kind::If:
+            case Op::Kind::Else_If:
+            case Op::Kind::Do:
                 out << "\tpopq %rax\n";
                 out << "\ttest %rax, %rax\n";
                 out << "\tjz op_" << std::get<s64>(op.as) << '\n';
@@ -1954,6 +2088,12 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tmovb %cl, (%rax)\n";
                 break;
+            case Op::Kind::While:
+            case Op::Kind::Then:
+            case Op::Kind::To_Int64:
+            case Op::Kind::To_Ptr:
+            case Op::Kind::To_Bool:
+                break;
             default:
                 std::unreachable();
             }
@@ -2039,6 +2179,309 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 
 // }}}
 
+// {{{
+static constexpr Type any_type {
+    "any_type",
+    0,
+};
+
+bool ensure_stack(const Op& self,
+                  std::span<const Type> have,
+                  std::span<const Type> expect,
+                  bool strict = false)
+{
+    if (!strict) {
+        if (have.size() < expect.size()) {
+            std::println(
+                stderr,
+                "{}: error: expected {} values on the stack, but only got {}",
+                self.tok.loc,
+                expect.size(),
+                have.size());
+            return false;
+        }
+    } else {
+        if (have.size() != expect.size()) {
+            std::println(
+                stderr,
+                "{}: error: expected {} values on the stack, but got {}",
+                self.tok.loc,
+                expect.size(),
+                have.size());
+            return false;
+        }
+    }
+
+    have = have.subspan(have.size() - expect.size());
+
+    if (expect.size() == 0)
+        return true;
+
+    for (ssz i = expect.size() - 1; i >= 0; --i) {
+        if (expect[i] == any_type)
+            continue;
+
+        if (expect[i].name != have[i].name) { // TODO: do not compare the names
+            std::println(stderr,
+                         "{}: error: expected argument {} to be of type `{}`, "
+                         "but got `{}`",
+                         self.tok.loc,
+                         expect.size() - i,
+                         expect[i].name,
+                         have[i].name);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool typecheck(const Da_Thing& ctx)
+{
+    using Typestack = std::vector<Type>;
+
+    static const Type& int64_type = builtin_types.at("int64");
+    static const Type& bool_type = builtin_types.at("bool");
+    static const Type& ptr_type = builtin_types.at("ptr");
+
+    Typestack stack;
+    std::vector<std::pair<Typestack, Op::Kind>> blocks;
+
+    for (const auto& op : ctx.ops) {
+        switch (op.kind) {
+        case Op::Kind::Proc_Start:
+            ASSERT(stack.size() == 0, "Compiler Bug");
+            stack.append_range(
+                ctx.procs.at(std::get<std::string>(op.as)).sig.input_types);
+            break;
+        case Op::Kind::Proc_Return:
+            if (!ensure_stack(
+                    op,
+                    stack,
+                    ctx.procs.at(std::get<std::string>(op.as)).sig.return_types,
+                    true))
+                return false;
+            stack.clear();
+            break;
+        case Op::Kind::Proc_Call: {
+            const Proc& proc = ctx.procs.at(std::get<std::string>(op.as));
+            if (!ensure_stack(op, stack, proc.sig.input_types))
+                return false;
+
+            for (usz i = 0; i < proc.sig.input_types.size(); ++i)
+                stack.pop_back();
+
+            stack.append_range(proc.sig.return_types);
+        } break;
+        case Op::Kind::Extern_Call: {
+            const Extern_Proc& proc
+                = ctx.extern_procs.at(std::get<std::string>(op.as));
+
+            if (!ensure_stack(op, stack, proc.sig.input_types))
+                return false;
+
+            for (usz i = 0; i < proc.sig.input_types.size(); ++i)
+                stack.pop_back();
+
+            stack.append_range(proc.sig.return_types);
+        } break;
+        case Op::Kind::Push_Int:
+            stack.push_back(int64_type);
+            break;
+        case Op::Kind::Push_Str:
+            stack.push_back(ptr_type);
+            break;
+        case Op::Kind::Drop:
+            if (!ensure_stack(op, stack, std::array<Type, 1> { any_type }))
+                return false;
+            stack.pop_back();
+            break;
+        case Op::Kind::Dup:
+            if (!ensure_stack(op, stack, std::array<Type, 1> { any_type }))
+                return false;
+            stack.push_back(stack.back());
+            break;
+        case Op::Kind::Swap: {
+            if (!ensure_stack(op,
+                              stack,
+                              std::array<Type, 2> { any_type, any_type }))
+                return false;
+
+            const auto top = stack.back();
+            stack.pop_back();
+
+            const auto below = stack.back();
+            stack.pop_back();
+
+            stack.push_back(top);
+            stack.push_back(below);
+        } break;
+        case Op::Kind::Rot: {
+            if (!ensure_stack(
+                    op,
+                    stack,
+                    std::array<Type, 3> { any_type, any_type, any_type }))
+                return false;
+
+            const auto top = stack.back();
+            stack.pop_back();
+
+            const auto below = stack.back();
+            stack.pop_back();
+
+            const auto under = stack.back();
+            stack.pop_back();
+
+            stack.push_back(top);
+            stack.push_back(below);
+            stack.push_back(under);
+        } break;
+        case Op::Kind::Over:
+            if (!ensure_stack(op,
+                              stack,
+                              std::array<Type, 2> { any_type, any_type }))
+                return false;
+
+            stack.push_back(stack[stack.size() - 2]);
+            break;
+        case Op::Kind::Minus:
+        case Op::Kind::Mult:
+        case Op::Kind::Div:
+        case Op::Kind::Mod:
+        case Op::Kind::Plus:
+            if (!ensure_stack(op,
+                              stack,
+                              std::array<Type, 2> { int64_type, int64_type }))
+                return false;
+
+            stack.pop_back();
+            break;
+        case Op::Kind::Equal:
+        case Op::Kind::Not_Equal:
+        case Op::Kind::Less_Than:
+        case Op::Kind::Less_Equal:
+        case Op::Kind::Greater_Than:
+        case Op::Kind::Greater_Equal:
+            if (!ensure_stack(op,
+                              stack,
+                              std::array<Type, 2> { any_type, any_type }))
+                return false;
+
+            stack.pop_back();
+            stack.pop_back();
+            stack.push_back(bool_type);
+            break;
+        case Op::Kind::Load64:
+        case Op::Kind::Load32:
+        case Op::Kind::Load16:
+        case Op::Kind::Load8:
+            if (!ensure_stack(op, stack, std::array<Type, 1> { ptr_type }))
+                return false;
+
+            stack.pop_back();
+            stack.push_back(int64_type);
+            break;
+        case Op::Kind::Store64:
+        case Op::Kind::Store32:
+        case Op::Kind::Store16:
+        case Op::Kind::Store8:
+            if (!ensure_stack(op,
+                              stack,
+                              std::array<Type, 2> { any_type, ptr_type }))
+                return false;
+
+            stack.pop_back();
+            stack.pop_back();
+            break;
+        case Op::Kind::To_Int64:
+            stack.back() = int64_type;
+            break;
+        case Op::Kind::To_Ptr:
+            stack.back() = ptr_type;
+            break;
+        case Op::Kind::To_Bool:
+            stack.back() = bool_type;
+            break;
+        case Op::Kind::If:
+        case Op::Kind::Do:
+            if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
+                return false;
+            stack.pop_back();
+            blocks.push_back(std::make_pair(stack, op.kind));
+            break;
+        case Op::Kind::Else:
+            ASSERT(blocks.size() >= 1
+                       && (blocks.back().second == Op::Kind::If
+                           || blocks.back().second == Op::Kind::Else_If),
+                   "Compiler Bug: Else in typechecker");
+            blocks.push_back(std::make_pair(stack, op.kind));
+            stack = blocks.at(blocks.size() - 2).first;
+            break;
+        case Op::Kind::Then:
+            if (blocks.back().second == Op::Kind::If) {
+                const auto expected_stack = blocks.back().first;
+                blocks.pop_back();
+                if (!ensure_stack(op, stack, expected_stack, true))
+                    return false;
+            } else if (blocks.back().second == Op::Kind::Else) {
+                std::vector<Typestack> expected_stacks;
+
+                do {
+                    expected_stacks.push_back(blocks.back().first);
+                    blocks.pop_back();
+                } while (!blocks.empty()
+                         && blocks.back().second != Op::Kind::If);
+                ASSERT(blocks.back().second == Op::Kind::If, "Compiler Bug");
+                blocks.pop_back(); // original stack from If
+                expected_stacks.push_back(stack);
+                while (expected_stacks.size() >= 2) {
+                    const auto have = expected_stacks.back();
+                    expected_stacks.pop_back();
+
+                    if (!ensure_stack(op, have, expected_stacks.back(), true))
+                        return false;
+                }
+
+                expected_stacks.pop_back();
+            } else
+                ASSERT(false,
+                       "Compiler Bug: unreachable in typechecker, Then closes "
+                       "bogus operation");
+            break;
+        case Op::Kind::End_While: {
+            ASSERT(blocks.back().second == Op::Kind::Do,
+                   "Compiler Bug: End_While closes bogus operation in "
+                   "typechecker");
+            const auto expected_stack = blocks.back().first;
+            if (!ensure_stack(op, stack, expected_stack, true))
+                return false;
+        } break;
+        case Op::Kind::While:
+            break;
+        case Op::Kind::Else_If: {
+            ASSERT(
+                blocks.back().second == Op::Kind::Else
+                    || blocks.back().second == Op::Kind::Else_If,
+                "Compiler Bug: Else_If closes bogus operation in typechecker");
+            if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
+                return false;
+            stack.pop_back();
+            blocks.push_back(std::make_pair(stack, op.kind));
+            const auto original_stack = std::ranges::find_last_if(
+                blocks,
+                [](const std::pair<Typestack, Op::Kind> p) -> bool {
+                    return p.second == Op::Kind::If;
+                });
+            ASSERT(original_stack.begin() != blocks.end(), "Compiler Bug");
+            stack = original_stack.back().first;
+        } break;
+        }
+    }
+
+    return true;
+}
+// }}}
+
 void usage(FILE* out, const char* program_name)
 {
     std::println(out, "Usage: {} <file.dpt>", program_name);
@@ -2084,6 +2527,25 @@ int main(int argc, char** argv)
         }
     }
 #endif
+
+    if (!o.procs.contains("main")) {
+        std::println(stderr, "{}: error: no `main` procedure found", argv1);
+        std::println("{}: note: consider adding procedure main", argv1);
+        return 1;
+    }
+
+    const Type_Sig expected_sig { { }, { builtin_types.at("int64") } };
+    if (const auto main_proc = o.procs.at("main");
+        main_proc.sig != expected_sig) {
+        std::println(stderr,
+                     "{}: error: expected `main` procedure to have type "
+                     "signature `-- int64`",
+                     main_proc.tok.loc);
+        return 6;
+    }
+
+    if (!typecheck(o))
+        return 6;
 
     compile(Target::x86_64_Gas, file_path, o);
 }

@@ -1,13 +1,13 @@
 link "c"
 
-proc second {
+proc second -- int64 int64 int64 {
     69
     420
     -1337
 }
 
-proc main {
-    second
-    "string1"
+proc main -- int64 {
+    second drop drop drop
+    "string1" drop drop
     69
 }

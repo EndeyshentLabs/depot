@@ -4,19 +4,12 @@ extern proc puts ptr -- ;
 extern proc putchar int64 -- ;
 extern proc printf ptr int64 -- ; // NOTE: add `poly` type
 
-proc >cstr {
-    swap drop
-}
+proc >cstr int64 ptr -- ptr { swap drop }
 
-proc print {
-    >cstr puts
-}
+proc print int64 ptr -- { >cstr puts }
+proc printn int64 -- { "%d" >cstr swap printf }
 
-proc printn {
-    "%d" >cstr swap printf
-}
-
-proc main {
+proc main -- int64 {
     1 while dup 100 <= {
         dup 15 mod 0 = if
             "FizzBuzz" print
@@ -31,4 +24,5 @@ proc main {
         1 +
     }
     drop
+    0
 }

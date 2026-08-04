@@ -1,8 +1,9 @@
 link "c"
 
-proc main {
+proc main -- int64 {
     17 2 *
     dup 1 + +
 
     138 2 / -1 *
+    *
 }
