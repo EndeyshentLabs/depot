@@ -139,6 +139,28 @@ static void execute_command(const std::vector<std::string>& cmd_line)
 // }}}
 
 // {{{
+struct Scoped_Stopwatch {
+    const std::chrono::time_point<std::chrono::high_resolution_clock> start;
+    const std::string name;
+
+    Scoped_Stopwatch(const std::string& name)
+        : start { std::chrono::high_resolution_clock::now() }
+        , name { name }
+    {
+    }
+
+    ~Scoped_Stopwatch()
+    {
+        std::println("{}: {}ms",
+                     name,
+                     std::chrono::duration<double, std::milli>(
+                         std::chrono::high_resolution_clock::now() - start)
+                         .count());
+    }
+};
+// }}}
+
+// {{{
 template <typename T>
     requires(std::is_same_v<T, std::ifstream>
              || std::is_same_v<T, std::ofstream>)
@@ -469,6 +491,8 @@ struct Lexer {
 
     std::vector<Token> lex()
     {
+        const Scoped_Stopwatch stopwatch { "lexing" };
+
         std::vector<Token> toks;
 
         do {
@@ -1812,6 +1836,8 @@ struct Parser {
 
     Da_Thing parse()
     {
+        const Scoped_Stopwatch stopwatch { "parsing" };
+
         std::vector<Op> ops;
 
         while (!toks.empty()) {
@@ -2168,6 +2194,8 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 {
     using Fs_Path = std::filesystem::path;
 
+    const Scoped_Stopwatch stopwatch { "compilation" };
+
     static constexpr std::string_view build_dir = ".build";
 
     const auto base_path = input_path.stem();
@@ -2321,6 +2349,8 @@ constexpr auto typestack_to_string(std::span<const Type> s)
 bool typecheck(const Da_Thing& ctx)
 {
     using Typestack = std::vector<Type>;
+
+    const Scoped_Stopwatch stopwatch { "typechecking" };
 
     static const Type& int64_type = builtin_types.at("int64");
     static const Type& bool_type = builtin_types.at("bool");
