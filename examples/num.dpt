@@ -1,6 +1,6 @@
 link "c"
 
-proc main {
+proc main -- int64 {
     1377 // basic number in base-10
 
     // <base>#<num>, where <base> is in range [2, 36]
@@ -10,4 +10,6 @@ proc main {
     16#ff // 255 in base-16
     // mixing cases is allowed
     36#Labs // 993160 in base-36
+
+    drop drop drop
 }

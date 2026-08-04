@@ -2,6 +2,6 @@ link "c"
 
 extern proc puts ptr -- ;
 
-proc main {
+proc main -- int64 {
     "Hello, World!" swap drop puts 0
 }

@@ -4,19 +4,23 @@ extern proc malloc int64 -- ptr ;
 extern proc free ptr -- ;
 extern proc putchar int64 -- ;
 
-proc main {
+proc ptr+ ptr int64 -- ptr { swap >int64 + >ptr }
+proc +ptr int64 ptr -- ptr { >int64 + >ptr }
+
+proc main -- int64 {
     6 malloc
-    dup 72  swap 0 + !8 // H
-    dup 101 swap 1 + !8 // e
-    dup 108 swap 2 + !8 // l
-    dup 108 swap 3 + !8 // l
-    dup 111 swap 4 + !8 // o
-    dup 10  swap 5 + !8 // \n
+    dup 72  swap 0 ptr+ !8 // H
+    dup 101 swap 1 ptr+ !8 // e
+    dup 108 swap 2 ptr+ !8 // l
+    dup 108 swap 3 ptr+ !8 // l
+    dup 111 swap 4 ptr+ !8 // o
+    dup 10  swap 5 ptr+ !8 // \n
 
     0 while dup 6 < {
-        over over + @8 putchar
+        over over ptr+ @8 putchar
         1 +
     } drop
 
-    free drop
+    free
+    0
 }
