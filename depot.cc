@@ -812,12 +812,12 @@ struct Type {
     std::string name;
     u64 size_of;
 
-    inline bool operator==(const Type& other) const noexcept
+    constexpr bool operator==(const Type& other) const noexcept
     {
         return name == other.name && size_of == other.size_of;
     }
 
-    inline bool operator!=(const Type& other) const noexcept
+    constexpr bool operator!=(const Type& other) const noexcept
     {
         return !(*this == other);
     }
@@ -843,13 +843,13 @@ struct Type_Sig {
     std::vector<Type> input_types;
     std::vector<Type> return_types;
 
-    inline bool operator==(const Type_Sig& other) const noexcept
+    constexpr bool operator==(const Type_Sig& other) const noexcept
     {
         return input_types == other.input_types
             && return_types == other.return_types;
     }
 
-    inline bool operator!=(const Type_Sig& other) const noexcept
+    constexpr bool operator!=(const Type_Sig& other) const noexcept
     {
         return !(*this == other);
     }
@@ -1219,7 +1219,10 @@ struct Parser {
         return true;
     }
 
-    inline bool parse_elif(std::vector<Op>& ops) { return parse_if(ops, true); }
+    constexpr bool parse_elif(std::vector<Op>& ops)
+    {
+        return parse_if(ops, true);
+    }
 
     bool parse_while(std::vector<Op>& ops)
     {
@@ -1242,7 +1245,7 @@ struct Parser {
         }
 
         const u64 jump_if_index = ops.size();
-        ops.emplace_back(self, Op::Kind::Do, 1337);
+        ops.emplace_back(open_curly.value(), Op::Kind::Do, 1337);
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             if (!parse_token(ops, toks.back())) {
                 note(self.loc, "inside of this while loop body");
@@ -1250,12 +1253,15 @@ struct Parser {
             }
         }
 
-        if (!expect(self, Token::Kind::Close_Curly)) {
+        const auto close_curly = expect(self, Token::Kind::Close_Curly);
+        if (!close_curly) {
             error(self.loc, "unclosed while loop block");
             note(open_curly->loc, "opened here");
             return false;
         }
-        ops.emplace_back(self, Op::Kind::End_While, cond_op_index);
+        ops.emplace_back(close_curly.value(),
+                         Op::Kind::End_While,
+                         cond_op_index);
         ops[jump_if_index].as = static_cast<s64>(ops.size());
 
         return true;
@@ -2221,10 +2227,10 @@ bool ensure_stack_size(const Op& self,
 }
 
 template <bool enable_logging = true>
-inline bool ensure_stack_size(const Op& self,
-                              std::span<const Type> have,
-                              std::span<const Type> expect,
-                              bool strict = false)
+constexpr bool ensure_stack_size(const Op& self,
+                                 std::span<const Type> have,
+                                 std::span<const Type> expect,
+                                 bool strict = false)
 {
     return ensure_stack_size<enable_logging>(self,
                                              have.size(),
@@ -2267,7 +2273,7 @@ bool ensure_stack(const Op& self,
     return true;
 }
 
-inline auto typestack_to_string(std::span<const Type> s)
+constexpr auto typestack_to_string(std::span<const Type> s)
 {
     return std::views::join_with(
         std::views::transform(
@@ -2377,11 +2383,32 @@ bool typecheck(const Da_Thing& ctx)
 
             stack.push_back(stack[stack.size() - 2]);
             break;
+        case Op::Kind::Plus:
         case Op::Kind::Minus:
+            if (!ensure_stack_size(op, stack.size(), 2))
+                return false;
+
+            if (!ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { int64_type, int64_type })
+                && !ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { ptr_type, ptr_type })) {
+                std::println(stderr,
+                             "{}: error: expected arguments of {} to be `int64 "
+                             "int64` or `ptr ptr`",
+                             op.tok.loc,
+                             human(op.tok.kind));
+                return false;
+            }
+
+            stack.pop_back();
+            break;
         case Op::Kind::Mult:
         case Op::Kind::Div:
         case Op::Kind::Mod:
-        case Op::Kind::Plus:
             if (!ensure_stack(op,
                               stack,
                               std::array<Type, 2> { int64_type, int64_type }))
@@ -2391,6 +2418,33 @@ bool typecheck(const Da_Thing& ctx)
             break;
         case Op::Kind::Equal:
         case Op::Kind::Not_Equal:
+            if (!ensure_stack_size(op, stack.size(), 2))
+                return false;
+
+            if (!ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { int64_type, int64_type })
+                && !ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { ptr_type, ptr_type })
+                && !ensure_stack<false>(
+                    op,
+                    stack,
+                    std::array<Type, 2> { bool_type, bool_type })) {
+                std::println(stderr,
+                             "{}: error: expected arguments of {} to be `int64 "
+                             "int64` or `ptr ptr` or `bool bool`",
+                             op.tok.loc,
+                             human(op.tok.kind));
+                return false;
+            }
+
+            stack.pop_back();
+            stack.pop_back();
+            stack.push_back(bool_type);
+            break;
         case Op::Kind::Less_Than:
         case Op::Kind::Less_Equal:
         case Op::Kind::Greater_Than:
@@ -2441,13 +2495,22 @@ bool typecheck(const Da_Thing& ctx)
             stack.pop_back();
             break;
         case Op::Kind::To_Int64:
-            stack.back() = int64_type;
+            if (!ensure_stack_size(op, stack.size(), 1))
+                return false;
+            stack.pop_back();
+            stack.push_back(int64_type);
             break;
         case Op::Kind::To_Ptr:
-            stack.back() = ptr_type;
+            if (!ensure_stack_size(op, stack.size(), 1))
+                return false;
+            stack.pop_back();
+            stack.push_back(ptr_type);
             break;
         case Op::Kind::To_Bool:
-            stack.back() = bool_type;
+            if (!ensure_stack_size(op, stack.size(), 1))
+                return false;
+            stack.pop_back();
+            stack.push_back(bool_type);
             break;
         case Op::Kind::If:
         case Op::Kind::Do:
@@ -2470,10 +2533,9 @@ bool typecheck(const Da_Thing& ctx)
                 blocks.pop_back();
 
                 if (!ensure_stack<false>(op, stack, expected_stack, true)) {
-                    std::println(
-                        stderr,
-                        "{}: error: stack differs in `if` block branches",
-                        op.tok.loc);
+                    std::println(stderr,
+                                 "{}: error: stack altered by `if` block",
+                                 op.tok.loc);
 
                     std::println("{}: note: got stack: {:s}",
                                  op.tok.loc,
@@ -2543,8 +2605,22 @@ bool typecheck(const Da_Thing& ctx)
                    human(blocks.back().second));
 
             const auto expected_stack = blocks.back().first;
-            if (!ensure_stack(op, stack, expected_stack, true))
+            if (!ensure_stack<false>(op, stack, expected_stack, true)) {
+                std::println(stderr,
+                             "{}: error: stack altered by `do` block (part of "
+                             "`while` block)",
+                             op.tok.loc);
+
+                std::println("{}: note: got stack: {:s}",
+                             op.tok.loc,
+                             typestack_to_string(stack));
+
+                std::println("{}: note: expected stack: {:s}",
+                             op.tok.loc,
+                             typestack_to_string(expected_stack));
+
                 return false;
+            }
         } break;
         case Op::Kind::Else_If: {
             ASSERT(blocks.back().second == Op::Kind::Else
