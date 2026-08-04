@@ -234,7 +234,6 @@ struct std::formatter<Location> {
                               loc.col + 1);
     }
 };
-
 // }}}
 
 // LEXER {{{
@@ -690,7 +689,6 @@ struct Lexer {
         return toks;
     }
 };
-
 // }}}
 
 // PARSER {{{
@@ -1856,7 +1854,6 @@ struct Parser {
         };
     }
 };
-
 // }}}
 
 // CODEGEN {{{
@@ -2244,7 +2241,6 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
         std::unreachable();
     }
 }
-
 // }}}
 
 // TYPECHECKER {{{
