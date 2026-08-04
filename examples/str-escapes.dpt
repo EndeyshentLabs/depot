@@ -10,8 +10,9 @@ proc print int64 ptr -- {
     swap printf
 }
 
-proc main {
+proc main -- int64 {
     "Secret!\r" print
     "Hiding\tsomething\v" print
     "Shhhhhhhhhhhh....\n" print
+    0
 }

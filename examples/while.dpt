@@ -2,10 +2,11 @@ link "c"
 
 extern proc puts ptr -- ;
 
-proc main {
+proc main -- int64 {
     0 while dup 10 < {
         "Hello!" swap drop puts
         1 +
     }
     drop
+    0
 }
