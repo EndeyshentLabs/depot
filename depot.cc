@@ -687,7 +687,7 @@ struct Op {
 
         If,
         Else,
-        Else_If,
+        Elif,
         Then,
 
         While,
@@ -749,7 +749,7 @@ static constexpr std::string_view human(Op::Kind kind)
         return "If";
     case Op::Kind::Else:
         return "Else";
-    case Op::Kind::Else_If:
+    case Op::Kind::Elif:
         return "Else_If";
     case Op::Kind::Then:
         return "Then";
@@ -1162,7 +1162,7 @@ struct Parser {
         const auto jump_if_index = ops.size();
 
         if (elif)
-            ops.emplace_back(self, Op::Kind::Else_If, 1337);
+            ops.emplace_back(self, Op::Kind::Elif, 1337);
         else
             ops.emplace_back(self, Op::Kind::If, 1337);
 
@@ -1980,7 +1980,7 @@ namespace x86_64 {
                 out << "\tjmp op_" << std::get<s64>(op.as) << '\n';
                 break;
             case Op::Kind::If:
-            case Op::Kind::Else_If:
+            case Op::Kind::Elif:
             case Op::Kind::Do:
                 out << "\tpopq %rax\n";
                 out << "\ttest %rax, %rax\n";
@@ -2558,7 +2558,7 @@ bool typecheck(const Da_Thing& ctx)
         case Op::Kind::Else:
             ASSERT(blocks.size() >= 1
                        && (blocks.back().second == Op::Kind::If
-                           || blocks.back().second == Op::Kind::Else_If),
+                           || blocks.back().second == Op::Kind::Elif),
                    "Compiler Bug: Else in typechecker");
             blocks.push_back(std::make_pair(stack, op.kind));
             stack = blocks.at(blocks.size() - 2).first;
@@ -2658,9 +2658,9 @@ bool typecheck(const Da_Thing& ctx)
                 return false;
             }
         } break;
-        case Op::Kind::Else_If: {
+        case Op::Kind::Elif: {
             ASSERT(blocks.back().second == Op::Kind::Else
-                       || blocks.back().second == Op::Kind::Else_If,
+                       || blocks.back().second == Op::Kind::Elif,
                    "Compiler Bug: unreachable in typechecker, Else_If closes "
                    "{} operation and this is not allowed",
                    human(blocks.back().second));
