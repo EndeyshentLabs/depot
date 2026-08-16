@@ -19,7 +19,7 @@ syn keyword depotOperator drop dup swap rot over mod >int64 >ptr >bool
 syn keyword depotConditional if elif else then
 syn keyword depotRepeat      while
 
-syn keyword depotKeywords link nextgroup=depotString
+syn keyword depotKeywords link include nextgroup=depotString
 syn keyword depotKeywords proc extern
 
 syn keyword depotTypes int64 ptr bool
