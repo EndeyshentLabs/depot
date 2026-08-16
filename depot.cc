@@ -2781,8 +2781,10 @@ int main(int argc, char** argv)
         main_proc.sig != expected_sig) {
         std::println(stderr,
                      "{}: error: expected `main` procedure to have type "
-                     "signature `-- int64`",
-                     main_proc.tok.loc);
+                     "signature ` -- int64`, but got `{:s} -- {:s}`",
+                     main_proc.tok.loc,
+                     typestack_to_string(main_proc.sig.input_types),
+                     typestack_to_string(main_proc.sig.return_types));
         return 5;
     }
 
