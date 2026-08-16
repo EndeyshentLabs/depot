@@ -1,8 +1,9 @@
-/simple
 /extern
-/math
-/while
-/pointers
 /fizzbuzz
-/str-escapes
+/hello
+/math
 /num
+/pointers
+/simple
+/str-escapes
+/while

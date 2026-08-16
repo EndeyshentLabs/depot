@@ -139,6 +139,8 @@ static void execute_command(const std::vector<std::string>& cmd_line)
 // }}}
 
 // PERFORMANCE STOPWATCH {{{
+static std::unordered_map<std::string, double> performance_map;
+
 struct Scoped_Stopwatch {
     const std::chrono::time_point<std::chrono::high_resolution_clock> start;
     const std::string name;
@@ -147,15 +149,16 @@ struct Scoped_Stopwatch {
         : start { std::chrono::high_resolution_clock::now() }
         , name { name }
     {
+        if (!performance_map.contains(name))
+            performance_map.emplace(name, 0.0);
     }
 
     ~Scoped_Stopwatch()
     {
-        std::println("{}: {}ms",
-                     name,
-                     std::chrono::duration<double, std::milli>(
-                         std::chrono::high_resolution_clock::now() - start)
-                         .count());
+        performance_map[name]
+            += std::chrono::duration<double, std::milli>(
+                   std::chrono::high_resolution_clock::now() - start)
+                   .count();
     }
 };
 // }}}
@@ -164,7 +167,7 @@ struct Scoped_Stopwatch {
 template <typename T>
     requires(std::is_same_v<T, std::ifstream>
              || std::is_same_v<T, std::ofstream>)
-void check_fstream_error(const T& file, std::string_view path)
+bool check_fstream_error(const T& file, std::string_view path)
 {
     if (!file.is_open()) {
         std::string reason = "Unknown error";
@@ -172,8 +175,10 @@ void check_fstream_error(const T& file, std::string_view path)
             reason = std::strerror(errno);
 
         std::println(stderr, "{}: error: Couldn't open: {}", path, reason);
-        std::exit(2);
+        return false;
     }
+
+    return true;
 }
 // }}}
 
@@ -294,6 +299,8 @@ struct Token {
 
         True,
         False,
+
+        Include,
     } kind;
     std::string text;
     As as;
@@ -331,6 +338,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { ">bool", Token::Kind::To_Bool },
 
     { "true", Token::Kind::True },       { "false", Token::Kind::False },
+
+    { "include", Token::Kind::Include },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -425,6 +434,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
     case Token::Kind::False:
         return plural ? "`false` keyword-constants"
                       : "`false` keyword-constant";
+    case Token::Kind::Include:
+        return plural ? "`include` keywords" : "`include` keyword";
     default:
         std::unreachable();
     }
@@ -436,23 +447,29 @@ struct Lexer {
     Location loc { };
     std::string source { };
 
+    bool has_error { false };
+
     Lexer(const std::filesystem::path& path)
     {
         std::ifstream file { path };
 
-        check_fstream_error(file, path.string());
+        if (!check_fstream_error(file, path.string())) {
+            has_error = true;
+            return;
+        }
 
         std::stringstream buffer;
         buffer << file.rdbuf();
         source = buffer.str();
 
-        loc.file_path = path;
+        loc.file_path = path.lexically_normal();
         if (source.empty()) {
             std::println(stderr, "{}: error: Empty file", loc);
             std::println("{}: note: consider adding procedure main", loc);
             std::println("|\t// minimal program:");
             std::println("|\tlink \"c\"\n|\tproc main -- int64 {{ 0 }}");
-            std::exit(2);
+            has_error = true;
+            return;
         }
         c = source[cursor];
         ASSERT(c != 0,
@@ -905,17 +922,20 @@ struct Da_Thing {
     std::unordered_map<std::string, Extern_Proc> extern_procs;
 };
 
+static std::set<std::filesystem::path> included_paths { };
 struct Parser {
     std::vector<Token> toks;
     bool has_error { false };
-    std::vector<std::string> linker_libs;
-    std::unordered_map<std::string, Proc> procs;
-    std::unordered_map<std::string, Extern_Proc> extern_procs;
+    Da_Thing& ctx;
+    std::filesystem::path current_file { };
     std::string_view current_proc_name { };
-    std::vector<std::string> strings;
 
-    Parser(std::span<Token> toks)
+    Parser(std::span<Token> toks,
+           Da_Thing& ctx,
+           const std::filesystem::path& file_path)
         : toks { toks.size() }
+        , ctx { ctx }
+        , current_file { file_path }
     {
         this->toks.assign_range(std::ranges::reverse_view(toks));
     }
@@ -929,9 +949,9 @@ struct Parser {
 
     Name_Availabilty is_name_available(const std::string& name)
     {
-        if (procs.contains(name))
+        if (ctx.procs.contains(name))
             return Name_Availabilty::Exists_Proc;
-        if (extern_procs.contains(name))
+        if (ctx.extern_procs.contains(name))
             return Name_Availabilty::Exists_Extern_Proc;
         if (builtin_types.contains(name))
             return Name_Availabilty::Exists_Builtin_Type;
@@ -1098,13 +1118,14 @@ struct Parser {
             error(self.loc,
                   "redefinition of procedure \"{}\"",
                   proc_name->text);
-            note(procs.at(proc_name->text).tok.loc, "previously defined here");
+            note(ctx.procs.at(proc_name->text).tok.loc,
+                 "previously defined here");
             return false;
         case Name_Availabilty::Exists_Extern_Proc:
             error(self.loc,
                   "procedure name shadows external procedure \"{}\"",
                   proc_name->text);
-            note(extern_procs.at(proc_name->text).tok.loc,
+            note(ctx.extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
         case Name_Availabilty::Exists_Builtin_Type:
@@ -1119,11 +1140,11 @@ struct Parser {
         }
 
         current_proc_name = proc_name->text;
-        procs.emplace(proc_name->text,
-                      Proc { self,
-                             proc_name->text,
-                             static_cast<s64>(ops.size()),
-                             sig.value() });
+        ctx.procs.emplace(proc_name->text,
+                          Proc { self,
+                                 proc_name->text,
+                                 static_cast<s64>(ops.size()),
+                                 sig.value() });
         ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
@@ -1163,7 +1184,7 @@ struct Parser {
             return false;
         }
 
-        linker_libs.push_back(std::get<std::string>(lib_name->as));
+        ctx.linker_libs.push_back(std::get<std::string>(lib_name->as));
 
         return true;
     }
@@ -1329,13 +1350,14 @@ struct Parser {
             error(self.loc,
                   "external procedure name shadows procedure \"{}\"",
                   proc_name->text);
-            note(procs.at(proc_name->text).tok.loc, "previously defined here");
+            note(ctx.procs.at(proc_name->text).tok.loc,
+                 "previously defined here");
             return false;
         case Name_Availabilty::Exists_Extern_Proc:
             error(self.loc,
                   "redefinition of extern procedure \"{}\"",
                   proc_name->text);
-            note(extern_procs.at(proc_name->text).tok.loc,
+            note(ctx.extern_procs.at(proc_name->text).tok.loc,
                  "previously defined here");
             return false;
         case Name_Availabilty::Exists_Builtin_Type:
@@ -1349,9 +1371,107 @@ struct Parser {
             std::unreachable();
         }
 
-        extern_procs.emplace(
+        ctx.extern_procs.emplace(
             proc_name->text,
             Extern_Proc { self, proc_name->text, sig.value() });
+
+        return true;
+    }
+
+    bool parse_include()
+    {
+        static u64 include_count = 0;
+        ++include_count;
+
+        const auto self = toks.back();
+        toks.pop_back();
+
+        if (include_count >= 1024) {
+            error(self.loc, "too many levels of includes (maximum is 1024)");
+            return false;
+        }
+
+        if (toks.size() <= 0) {
+            error(self.loc, "expected file name as string, but got nothing");
+            return false;
+        }
+
+        const auto path = expect(self, Token::Kind::String);
+
+        if (!path) {
+            note(self.loc, "for this include directive");
+            return false;
+        }
+
+        const auto include_path
+            = std::filesystem::path(std::get<std::string>(path.value().as))
+                  .lexically_normal();
+
+        auto current_dir = current_file;
+        current_dir.remove_filename();
+        if (current_dir.empty())
+            current_dir = ".";
+
+        const std::array<std::filesystem::path, 10> roots = {
+            current_dir,
+            current_dir / "lib",
+            current_dir / "include",
+            std::filesystem::current_path(),
+            std::filesystem::current_path() / "lib",
+            std::filesystem::current_path() / "include",
+            "/usr/include",
+            "/usr/lib/depot",
+            "/usr/local/include",
+            "/usr/local/lib/depot",
+        };
+        std::optional<std::filesystem::path> found = std::nullopt;
+
+        if (std::filesystem::exists(include_path))
+            found = include_path;
+        else
+            for (const auto& root : roots) {
+                const auto path = root / include_path;
+                if (std::filesystem::exists(path)) {
+                    found = path.lexically_normal();
+                    break;
+                }
+            }
+
+        if (!found) {
+            error(self.loc,
+                  "couldn't find file `{}` in the search path",
+                  include_path.string());
+            note(self.loc, "search path:");
+            for (const auto& root : roots)
+                std::println("- {}", root.string());
+            return false;
+        }
+
+        if (included_paths.contains(found.value())) {
+            error(self.loc,
+                  "multiple includes of the same file are not allowed");
+            return false;
+        }
+
+        included_paths.insert(found.value());
+
+        Lexer l { found.value() };
+        if (l.has_error) {
+            note(self.loc, "in file included from here");
+            return false;
+        }
+
+        std::vector<Token> included_toks;
+        if (!l.lex(included_toks)) {
+            note(self.loc, "in file included from here");
+            return false;
+        }
+
+        Parser include_parser { included_toks, ctx, found.value() };
+        if (!include_parser.parse()) {
+            note(self.loc, "in file included from here");
+            return false;
+        }
 
         return true;
     }
@@ -1393,7 +1513,7 @@ struct Parser {
             toks.pop_back();
         } break;
         case Token::Kind::Ident:
-            if (procs.contains(t.text)) { // func call
+            if (ctx.procs.contains(t.text)) { // func call
                 if (current_proc_name.empty()) {
                     error(t.loc,
                           "calling procedures only allowed inside of "
@@ -1404,7 +1524,7 @@ struct Parser {
 
                 ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
                 toks.pop_back();
-            } else if (extern_procs.contains(t.text)) { // extern call
+            } else if (ctx.extern_procs.contains(t.text)) { // extern call
                 if (current_proc_name.empty()) {
                     error(t.loc,
                           "calling external procedures only allowed inside of "
@@ -1437,8 +1557,8 @@ struct Parser {
                              static_cast<s64>(str.size()));
             ops.emplace_back(t,
                              Op::Kind::Push_Str,
-                             static_cast<s64>(strings.size()));
-            strings.push_back(str);
+                             static_cast<s64>(ctx.strings.size()));
+            ctx.strings.push_back(str);
             toks.pop_back();
         } break;
         case Token::Kind::If:
@@ -1813,6 +1933,17 @@ struct Parser {
             ops.emplace_back(t, Op::Kind::To_Bool);
             toks.pop_back();
             break;
+        case Token::Kind::Include:
+            if (!current_proc_name.empty()) {
+                error(t.loc,
+                      "`include` directive allowed only in global scope");
+                toks.pop_back();
+                return false;
+            }
+
+            if (!parse_include())
+                return false;
+            break;
         case Token::Kind::Elif:
         case Token::Kind::Else:
         case Token::Kind::Then:
@@ -1828,28 +1959,16 @@ struct Parser {
         return true;
     }
 
-    bool parse(Da_Thing& ctx)
+    bool parse()
     {
         const Scoped_Stopwatch stopwatch { "parsing" };
-
-        std::vector<Op> ops;
 
         while (!toks.empty()) {
             const auto& t = toks.back();
 
-            parse_token(ops, t);
-
-            if (has_error)
+            if (!parse_token(ctx.ops, t) || has_error)
                 return false;
         }
-
-        ctx = {
-            .linker_libs = linker_libs,
-            .ops = ops,
-            .strings = strings,
-            .procs = procs,
-            .extern_procs = extern_procs,
-        };
 
         return true;
     }
@@ -2737,7 +2856,12 @@ int main(int argc, char** argv)
     const std::string argv1 { argv[1] };
     const std::filesystem::path file_path = argv1;
 
+    included_paths.insert(file_path.lexically_normal());
+
     Lexer l { file_path };
+    if (l.has_error)
+        return 2;
+
     std::vector<Token> toks;
     if (!l.lex(toks))
         return 3;
@@ -2749,10 +2873,10 @@ int main(int argc, char** argv)
     }
 #endif
 
-    Parser p { toks };
     Da_Thing o;
+    Parser p { toks, o, file_path };
 
-    if (!p.parse(o))
+    if (!p.parse())
         return 4;
 
 #ifdef DEPOT_DEBUG
@@ -2793,6 +2917,9 @@ int main(int argc, char** argv)
 
     if (!compile(Target::x86_64_Gas, file_path, o))
         return 6;
+
+    for (const auto& [name, time] : performance_map)
+        std::println("{}: {}ms", name, time);
 }
 
 // Copyright (c) 2026 EndeyshentLabs <Themikfound@gmail.com>

@@ -1,0 +1,6 @@
+include "../std/io.dpt"
+
+proc main -- int64 {
+    "Hello, World!" print
+    0
+}

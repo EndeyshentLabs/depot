@@ -1,0 +1,5 @@
+link "c"
+
+extern proc puts ptr -- ;
+proc >cstr int64 ptr -- ptr { swap drop }
+proc print int64 ptr -- { >cstr puts }
