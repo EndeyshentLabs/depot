@@ -487,11 +487,9 @@ struct Lexer {
         return source[cursor + offset];
     }
 
-    std::vector<Token> lex()
+    bool lex(std::vector<Token>& toks)
     {
         const Scoped_Stopwatch stopwatch { "lexing" };
-
-        std::vector<Token> toks;
 
         do {
             Location start_loc = loc;
@@ -538,7 +536,7 @@ struct Lexer {
                                 "{}: error: unknown string escape character {}",
                                 start_loc,
                                 peek());
-                            std::exit(3);
+                            return false;
                         }
 
                         advance();
@@ -557,7 +555,7 @@ struct Lexer {
                     std::println(stderr,
                                  "{}: error: junk at the end of the string",
                                  loc);
-                    std::exit(3);
+                    return false;
                 }
 
                 toks.emplace_back(start_loc, Token::Kind::String, text, str);
@@ -591,7 +589,7 @@ struct Lexer {
                                          "{}: error: unexpected character {}",
                                          loc,
                                          static_cast<char>(base.value));
-                            std::exit(3);
+                            return false;
                         }
 
                         if (!(base.value >= 2 && base.value <= 36)) {
@@ -600,7 +598,7 @@ struct Lexer {
                                          "number literal base range is [2, 36]",
                                          start_loc,
                                          base.value);
-                            std::exit(3);
+                            return false;
                         }
 
                         const auto num = better_strtoll(num_str, base.value);
@@ -615,7 +613,7 @@ struct Lexer {
                                 std::numeric_limits<decltype(num.value)>::min(),
                                 std::numeric_limits<
                                     decltype(num.value)>::max());
-                            std::exit(3);
+                            return false;
                         }
 
                         if (num.error
@@ -627,7 +625,7 @@ struct Lexer {
                                          start_loc,
                                          num.value,
                                          base.value);
-                            std::exit(3);
+                            return false;
                         }
 
                         toks.emplace_back(start_loc,
@@ -647,7 +645,7 @@ struct Lexer {
                                  "{}: error: unexpected character {}",
                                  loc,
                                  c);
-                    std::exit(3);
+                    return false;
                 } else {
                     char* endptr = nullptr;
                     const s64 num = std::strtoll(text.c_str(), &endptr, 10);
@@ -657,7 +655,7 @@ struct Lexer {
                                      "{}: error: unexpected character {}",
                                      loc,
                                      c);
-                        std::exit(3);
+                        return false;
                     }
 
                     toks.emplace_back(start_loc,
@@ -682,11 +680,11 @@ struct Lexer {
                              "{}: error: unexpected character {}",
                              loc,
                              c);
-                std::exit(3);
+                return false;
             }
         } while (advance());
 
-        return toks;
+        return true;
     }
 };
 // }}}
@@ -1830,7 +1828,7 @@ struct Parser {
         return true;
     }
 
-    Da_Thing parse()
+    bool parse(Da_Thing& ctx)
     {
         const Scoped_Stopwatch stopwatch { "parsing" };
 
@@ -1842,16 +1840,18 @@ struct Parser {
             parse_token(ops, t);
 
             if (has_error)
-                std::exit(4);
+                return false;
         }
 
-        return {
+        ctx = {
             .linker_libs = linker_libs,
             .ops = ops,
             .strings = strings,
             .procs = procs,
             .extern_procs = extern_procs,
         };
+
+        return true;
     }
 };
 // }}}
@@ -1867,7 +1867,7 @@ namespace codegen {
 
 namespace x86_64 {
 
-    static std::string compile(const Da_Thing& ctx)
+    static std::optional<std::string> compile(const Da_Thing& ctx)
     {
         std::stringstream out;
 
@@ -1943,7 +1943,7 @@ namespace x86_64 {
                                  arity);
                     std::println("{}: note: this extern procedure",
                                  proc.tok.loc);
-                    std::exit(5);
+                    return std::nullopt;
                     break;
                 case 6:
                     out << "\tpopq %r9\n";
@@ -1984,7 +1984,7 @@ namespace x86_64 {
                         ret_arity);
                     std::println("{}: note: this extern procedure",
                                  proc.tok.loc);
-                    std::exit(5);
+                    return std::nullopt;
                 }
             } break;
             case Op::Kind::Push_Int:
@@ -2177,14 +2177,14 @@ namespace x86_64 {
         out << "_depot_stack_bottom: .skip 524288\n";
         out << "_depot_stack_end:\n";
 
-        return out.str();
+        return std::make_optional(out.str());
     }
 
 } // namespace x86_64
 
 } // namespace codegen
 
-static void
+static bool
 compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
 {
     using Fs_Path = std::filesystem::path;
@@ -2200,12 +2200,14 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
     switch (tgt) {
     case Target::x86_64_Gas: {
         const auto out = codegen::x86_64::compile(ctx);
+        if (!out.has_value())
+            return false;
 
         const Fs_Path asm_path { dotbuild / (base_path.string() + ".S") };
         const Fs_Path obj_path { dotbuild / (base_path.string() + ".o") };
         std::ofstream file { asm_path };
         check_fstream_error(file, asm_path.string());
-        file << out;
+        file << out.value();
         file.close();
 
         const std::vector<std::string> asm_cmdline = {
@@ -2240,6 +2242,8 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
     default:
         std::unreachable();
     }
+
+    return true;
 }
 // }}}
 
@@ -2734,7 +2738,9 @@ int main(int argc, char** argv)
     const std::filesystem::path file_path = argv1;
 
     Lexer l { file_path };
-    auto toks = l.lex();
+    std::vector<Token> toks;
+    if (!l.lex(toks))
+        return 3;
 
 #ifdef DEPOT_DEBUG
     std::println("TOKS:");
@@ -2744,7 +2750,10 @@ int main(int argc, char** argv)
 #endif
 
     Parser p { toks };
-    auto o = p.parse();
+    Da_Thing o;
+
+    if (!p.parse(o))
+        return 4;
 
 #ifdef DEPOT_DEBUG
     std::println("OPS:");
@@ -2752,36 +2761,36 @@ int main(int argc, char** argv)
         std::print("{}: {}", op.tok.loc, human(op.kind));
         static_assert(std::variant_size_v<Op::As> == 2,
                       "Exhaustive handling of Op::As variants");
-        if (const auto* num = std::get_if<s64>(&op.as)) {
-            std::println(" {}", *num);
-        } else if (const auto* str = std::get_if<std::string>(&op.as)) {
-            std::println(" {:?}", *str);
-        } else {
-            std::println();
-        }
+        if (std::holds_alternative<s64>(op.as))
+            std::println(" {}", std::get<s64>(op.as));
+        else if (std::holds_alternative<std::string>(op.as))
+            std::println(" {:?}", std::get<std::string>(op.as));
+        else
+            std::unreachable();
     }
 #endif
 
     if (!o.procs.contains("main")) {
         std::println(stderr, "{}: error: no `main` procedure found", argv1);
         std::println("{}: note: consider adding procedure main", argv1);
-        return 1;
+        return 5;
     }
 
-    const Type_Sig expected_sig { { }, { builtin_types.at("int64") } };
+    static const Type_Sig expected_sig { { }, { builtin_types.at("int64") } };
     if (const auto main_proc = o.procs.at("main");
         main_proc.sig != expected_sig) {
         std::println(stderr,
                      "{}: error: expected `main` procedure to have type "
                      "signature `-- int64`",
                      main_proc.tok.loc);
-        return 6;
+        return 5;
     }
 
     if (!typecheck(o))
-        return 6;
+        return 5;
 
-    compile(Target::x86_64_Gas, file_path, o);
+    if (!compile(Target::x86_64_Gas, file_path, o))
+        return 6;
 }
 
 // Copyright (c) 2026 EndeyshentLabs <Themikfound@gmail.com>
