@@ -25,12 +25,22 @@ true // STACK: true:bool
 false // STACK: true:bool false:bool
 ```
 
+### Type Signatures
+
+Datatypes can be used inside of type signatures:
+
+```depot
+[input-types] [-- [return-types]]
+```
+
+If no `[return-types]` are present the `--` can be ommited
+
 ## Built-in Words
 
 - `proc` -- define a procedure
 
 ```depot
-proc <name> {
+proc <name> [type-sig] {
     <body>
 }
 ```
@@ -46,7 +56,7 @@ link "<lib>"
 - `extern` -- define an external procedure
 
 ```depot
-extern proc <symbol-name> <arity> ;
+extern proc <symbol-name> [type-sig] ;
 ```
 
 - `include` -- include another Depot source
