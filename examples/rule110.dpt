@@ -1,0 +1,62 @@
+include "../std/c.dpt"
+
+proc sizeof(tape) -- int64 { 40 }
+memory tape 40
+memory next-tape 40
+
+proc lnot bool -- bool { >int64 0 = }
+proc lor bool bool -- bool { >int64 swap >int64 + >bool }
+proc land bool bool -- bool { >int64 swap >int64 * >bool }
+
+proc min int64 int64 -- int64 { over over < if drop else swap drop then }
+
+memory ?alive/index 8
+proc ?alive int64 -- bool {
+    ?alive/index !64
+
+    tape ?alive/index @64 1 - ptr+ @8 4 *
+    tape ?alive/index @64     ptr+ @8 2 *
+    tape ?alive/index @64 1 + ptr+ @8
+    + +
+
+    dup 0 = over 4 = rot 7 = lor lor lnot
+}
+
+proc iteration {
+    sizeof(tape) 1 -
+    1 while over over > {
+        dup ?alive >int64
+        over next-tape +ptr !8
+        1 +
+    } drop drop
+
+    sizeof(tape) 1 -
+    0 while over over > {
+        dup next-tape +ptr @8 over tape +ptr !8
+        1 +
+    } drop drop
+}
+
+proc print-tape {
+    sizeof(tape)
+    0 while over over > {
+        dup tape +ptr @8 >bool if
+            35 putchar
+        else
+            32 putchar
+        then
+        1 +
+    } drop drop
+    10 putchar
+}
+
+proc main -- int64 {
+    1 tape sizeof(tape) 1 - ptr+ !8
+    print-tape
+    0 while dup 30 < {
+        iteration
+        print-tape
+        1 +
+    } drop
+    0
+}
