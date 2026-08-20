@@ -2408,11 +2408,17 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tmovb %cl, (%rax)\n";
                 break;
+            case Op::Kind::To_Bool:
+                out << "\tpopq %rax\n";
+                out << "\tcqo\n";
+                out << "\tcmpq $0, %rax\n";
+                out << "\tsetne %al\n";
+                out << "\tpushq %rax\n";
+                break;
             case Op::Kind::While:
             case Op::Kind::Then:
             case Op::Kind::To_Int64:
             case Op::Kind::To_Ptr:
-            case Op::Kind::To_Bool:
                 break;
             default:
                 std::unreachable();
