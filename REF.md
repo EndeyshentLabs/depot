@@ -33,7 +33,7 @@ Datatypes can be used inside of type signatures:
 [input-types] [-- [return-types]]
 ```
 
-If no `[return-types]` are present the `--` can be ommited
+If no `[return-types]` are present, then `--` can be ommited
 
 ## Built-in Words
 
