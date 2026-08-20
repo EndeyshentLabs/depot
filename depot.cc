@@ -19,7 +19,6 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -2993,7 +2992,7 @@ int main(int argc, char** argv)
 
     std::vector<std::string> positionals;
     while (!arg_stack.empty()) {
-        const auto& arg = arg_stack.back();
+        const auto arg = arg_stack.back();
         arg_stack.pop_back();
 
         if (arg.starts_with("-")) {
@@ -3022,7 +3021,9 @@ int main(int argc, char** argv)
     } else if (positionals.size() > 1) {
         usage(stderr, program_name);
         std::println(stderr,
-                     "erorr: too many positional arguments, expected only one");
+                     "erorr: too many positional arguments, expected only one, "
+                     "but got {}",
+                     positionals.size());
         return 1;
     }
 

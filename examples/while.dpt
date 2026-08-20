@@ -1,7 +1,5 @@
 include "../std/c.dpt"
 
-extern proc puts ptr -- ;
-
 proc main -- int64 {
     0 while dup 10 < {
         "Hello!" c/puts
