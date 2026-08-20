@@ -56,8 +56,10 @@ link "<lib>"
 - `extern` -- define an external procedure
 
 ```depot
-extern proc <symbol-name> [type-sig] ;
+extern "[external-symbol-name]" proc <name> [type-sig] ;
 ```
+
+If `[external-symbol-name]` is not present, then `<name>` is used instead.
 
 - `include` -- include another Depot source
 
