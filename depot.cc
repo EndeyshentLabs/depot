@@ -1352,11 +1352,23 @@ struct Parser {
     {
         const auto self = toks.back();
         toks.pop_back();
-        const auto prockwd = expect(self, Token::Kind::Proc);
-        if (!prockwd.has_value()) {
+        const auto proc_or_external_name = expect(self, { Token::Kind::Proc, Token::Kind::String }, false);
+        if (!proc_or_external_name.has_value()) {
             note(self.loc, "for this `extern` construction");
             return false;
         }
+
+        std::string external_name { "" };
+        if (proc_or_external_name->kind == Token::Kind::String) {
+            external_name = std::get<std::string>(proc_or_external_name->as);
+            toks.pop_back();
+
+            if (!expect(self, Token::Kind::Proc)) {
+                note(self.loc, "for this `extern` construction");
+                return false;
+            }
+        } else
+            toks.pop_back();
 
         const auto proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name.has_value()) {
@@ -1408,9 +1420,12 @@ struct Parser {
             std::unreachable();
         }
 
+        if (external_name.empty())
+            external_name = proc_name->text;
+
         ctx.extern_procs.emplace(
             proc_name->text,
-            Extern_Proc { self, proc_name->text, sig.value() });
+            Extern_Proc { self, external_name, sig.value() });
 
         return true;
     }
@@ -2203,7 +2218,7 @@ namespace x86_64 {
 
                 out << "\tmovq %rsp, %r12\n";
                 out << "\tmovq _depot_saved_rsp, %rsp\n";
-                out << "\tcall " << proc_name << '\n';
+                out << "\tcall " << proc.name << '\n';
                 out << "\tmovq %rsp, _depot_saved_rsp\n";
                 out << "\tmovq %r12, %rsp\n";
 
