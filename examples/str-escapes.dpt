@@ -1,8 +1,7 @@
+include "../std/mem.dpt"
 link "c"
 
 extern proc printf ptr ptr -- ;
-
-proc >cstr int64 ptr -- ptr { swap drop }
 
 proc print int64 ptr -- {
     >cstr

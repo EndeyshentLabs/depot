@@ -1,0 +1,19 @@
+link "c"
+
+memory hello-buffer 14 // sizeof("Hello, World!\n") = 14
+
+proc ptr+ ptr int64 -- ptr { swap >int64 + >ptr }
+
+// ssize_t write(int fildes, const void *buf, size_t nbyte);
+extern proc write int64 ptr int64 -- int64 ;
+// void *memcpy(void *dest, const void *src, size_t n);
+extern proc memcpy ptr ptr int64 -- ptr ;
+
+proc io/print int64 ptr { 1 rot write drop }
+
+proc main -- int64 {
+    hello-buffer "Hello, World!\n" swap memcpy drop
+    14 hello-buffer io/print
+
+    hello-buffer @8 // exit code 72
+}

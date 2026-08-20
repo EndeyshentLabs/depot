@@ -1,0 +1,10 @@
+include "mem.dpt"
+
+link "c"
+
+extern proc malloc int64 -- ptr ;
+extern proc free ptr -- ;
+extern proc putchar int64 -- ;
+
+extern proc puts ptr -- ;
+proc c/puts int64 ptr -- { >cstr puts }

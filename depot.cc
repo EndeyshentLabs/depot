@@ -301,6 +301,8 @@ struct Token {
         False,
 
         Include,
+
+        Memory,
     } kind;
     std::string text;
     As as;
@@ -340,6 +342,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "true", Token::Kind::True },       { "false", Token::Kind::False },
 
     { "include", Token::Kind::Include },
+
+    { "memory", Token::Kind::Memory },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -436,6 +440,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
                       : "`false` keyword-constant";
     case Token::Kind::Include:
         return plural ? "`include` keywords" : "`include` keyword";
+    case Token::Kind::Memory:
+        return plural ? "`memory` keywords" : "`memory` keyword";
     default:
         std::unreachable();
     }
@@ -719,7 +725,8 @@ struct Op {
         Extern_Call, // operand(str): procedure name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
-
+        Push_Global_Memory, // operand(int64): index inside of
+                            // `Da_Thing::memories`
         If,
         Else,
         Elif,
@@ -780,6 +787,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Push_Int";
     case Op::Kind::Push_Str:
         return "Push_Str";
+    case Op::Kind::Push_Global_Memory:
+        return "Push_Global_Memory";
     case Op::Kind::If:
         return "If";
     case Op::Kind::Else:
@@ -914,14 +923,29 @@ struct Extern_Proc {
     // TODO: calling convention
 };
 
+struct Memory {
+    Token tok;
+    std::string name;
+    u64 id;
+    u64 size;
+};
+
 struct Da_Thing {
     std::vector<std::string> linker_libs;
     std::vector<Op> ops;
     std::vector<std::string> strings;
+    std::vector<Memory> memories;
     std::unordered_map<std::string, Proc> procs;
     std::unordered_map<std::string, Extern_Proc> extern_procs;
     std::vector<std::filesystem::path> extra_include_paths;
 };
+
+constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
+{
+    return std::ranges::find_if(
+        ctx.memories,
+        [&name](const Memory& mem) -> bool { return mem.name == name; });
+}
 
 static std::set<std::filesystem::path> included_paths { };
 struct Parser {
@@ -946,6 +970,7 @@ struct Parser {
         Exists_Proc,
         Exists_Extern_Proc,
         Exists_Builtin_Type,
+        Exists_Memory,
     };
 
     Name_Availabilty is_name_available(const std::string& name)
@@ -956,6 +981,8 @@ struct Parser {
             return Name_Availabilty::Exists_Extern_Proc;
         if (builtin_types.contains(name))
             return Name_Availabilty::Exists_Builtin_Type;
+        if (find_memory_def(ctx, name) != ctx.memories.end())
+            return Name_Availabilty::Exists_Memory;
 
         return Name_Availabilty::Available;
     }
@@ -1132,6 +1159,11 @@ struct Parser {
         case Name_Availabilty::Exists_Builtin_Type:
             error(self.loc,
                   "procedure name shadows builtin type \"{}\"",
+                  proc_name->text);
+            return false;
+        case Name_Availabilty::Exists_Memory:
+            error(self.loc,
+                  "procedure name shadows memory definition \"{}\"",
                   proc_name->text);
             return false;
         case Name_Availabilty::Available:
@@ -1366,6 +1398,11 @@ struct Parser {
                   "external procedure name shadows builtin type \"{}\"",
                   proc_name->text);
             return false;
+        case Name_Availabilty::Exists_Memory:
+            error(self.loc,
+                  "external procedure name shadows memory definition \"{}\"",
+                  proc_name->text);
+            return false;
         case Name_Availabilty::Available:
             break;
         default:
@@ -1489,6 +1526,39 @@ struct Parser {
         return true;
     }
 
+    bool parse_memory()
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto name = expect(self, Token::Kind::Ident);
+        if (!name.has_value()) {
+            note(self.loc, "for this `memory` construction");
+            return false;
+        }
+
+        const auto size
+            = expect(self, Token::Kind::Number); // TODO: constant expressions
+        if (!size.has_value()) {
+            note(self.loc, "for this `memory` construction");
+            return false;
+        }
+
+        const auto sz = std::get<s64>(size->as);
+        if (sz <= 0) {
+            error(size->loc, "size should be at least 1 byte, but got {}", sz);
+            note(self.loc, "for this `memory` construction");
+            return false;
+        }
+
+        ctx.memories.emplace_back(Memory { self,
+                                           name->text,
+                                           ctx.memories.size(),
+                                           static_cast<u64>(sz) });
+
+        return true;
+    }
+
     bool parse_token(std::vector<Op>& ops, const Token& t)
     {
         switch (t.kind) {
@@ -1526,7 +1596,8 @@ struct Parser {
             toks.pop_back();
         } break;
         case Token::Kind::Ident:
-            if (ctx.procs.contains(t.text)) { // func call
+            switch (is_name_available(t.text)) {
+            case Name_Availabilty::Exists_Proc:
                 if (current_proc_name.empty()) {
                     error(t.loc,
                           "calling procedures only allowed inside of "
@@ -1537,7 +1608,8 @@ struct Parser {
 
                 ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
                 toks.pop_back();
-            } else if (ctx.extern_procs.contains(t.text)) { // extern call
+                break;
+            case Name_Availabilty::Exists_Extern_Proc:
                 if (current_proc_name.empty()) {
                     error(t.loc,
                           "calling external procedures only allowed inside of "
@@ -1548,7 +1620,26 @@ struct Parser {
 
                 ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
                 toks.pop_back();
-            } else {
+                break;
+            case Name_Availabilty::Exists_Memory: {
+                if (current_proc_name.empty()) {
+                    error(t.loc,
+                          "pushing global memory definition addresses only "
+                          "allowed inside of procedure bodies");
+                    toks.pop_back();
+                    return false;
+                }
+
+                const auto it = find_memory_def(ctx, t.text);
+                ASSERT(it != ctx.memories.end(), "Compiler Bug");
+                ops.emplace_back(
+                    t,
+                    Op::Kind::Push_Global_Memory,
+                    std::ranges::distance(ctx.memories.begin(), it));
+                toks.pop_back();
+            } break;
+            case Name_Availabilty::Exists_Builtin_Type:
+            case Name_Availabilty::Available:
                 error(t.loc, "unexpected identifier `{}`", t.text);
                 toks.pop_back();
                 return false;
@@ -1957,6 +2048,18 @@ struct Parser {
             if (!parse_include())
                 return false;
             break;
+        case Token::Kind::Memory:
+            if (!current_proc_name.empty()) {
+                error(t.loc,
+                      "`include` directive allowed only in global scope, for "
+                      "now");
+                toks.pop_back();
+                return false;
+            }
+
+            if (!parse_memory())
+                return false;
+            break;
         case Token::Kind::Elif:
         case Token::Kind::Else:
         case Token::Kind::Then:
@@ -2128,6 +2231,14 @@ namespace x86_64 {
                     << ", %rax\n";
                 out << "\tpushq %rax\n";
                 break;
+            case Op::Kind::Push_Global_Memory: {
+                const auto id = std::get<s64>(op.as);
+                ASSERT(ctx.memories.size() > static_cast<usz>(id),
+                       "Compiler Bug");
+                const auto mem = ctx.memories[id];
+                out << "\tmovq $_depot_mem" << id << ", %rax\n";
+                out << "\tpushq %rax\n";
+            } break;
             case Op::Kind::Else:
             case Op::Kind::End_While:
                 out << "\tjmp op_" << std::get<s64>(op.as) << '\n';
@@ -2299,7 +2410,7 @@ namespace x86_64 {
             const auto& str = ctx.strings[i];
             out << "_depot_str" << i << ": .byte";
             for (const u8 c : str) {
-                out << " 0x" << std::hex << (u16)c << ',';
+                out << " 0x" << std::hex << static_cast<u16>(c) << ',';
             }
             out << " 0x0\n";
         }
@@ -2308,6 +2419,12 @@ namespace x86_64 {
         out << "_depot_saved_rsp: .skip 8\n";
         out << "_depot_stack_bottom: .skip 524288\n";
         out << "_depot_stack_end:\n";
+
+        for (usz i = 0; i < ctx.memories.size(); ++i) {
+            const auto mem = ctx.memories[i];
+            out << "_depot_mem" << i << ": .skip 0x" << std::hex << mem.size
+                << '\n';
+        }
 
         return std::make_optional(out.str());
     }
@@ -2531,6 +2648,9 @@ bool typecheck(const Da_Thing& ctx)
             stack.push_back(int64_type);
             break;
         case Op::Kind::Push_Str:
+            stack.push_back(ptr_type);
+            break;
+        case Op::Kind::Push_Global_Memory:
             stack.push_back(ptr_type);
             break;
         case Op::Kind::Drop:

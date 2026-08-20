@@ -1,6 +1,6 @@
-include "../std/io.dpt"
+include "../std/c.dpt"
 
 proc main -- int64 {
-    "Hello, World!" print
+    "Hello, World!" c/puts
     0
 }

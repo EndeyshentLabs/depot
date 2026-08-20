@@ -1,0 +1,6 @@
+proc >cstr int64 ptr -- ptr { swap drop }
+
+proc ptr+ ptr int64 -- ptr { swap >int64 + >ptr }
+proc +ptr int64 ptr -- ptr { >int64 + >ptr }
+proc ptr- ptr int64 -- ptr { swap >int64 - >ptr }
+proc -ptr int64 ptr -- ptr { >int64 - >ptr }

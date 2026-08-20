@@ -1,1 +1,1 @@
-autocmd BufNewFile,BufRead *.dpt set filetype=depot
+autocmd BufNewFile,BufRead *.dpt setf depot

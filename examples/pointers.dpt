@@ -1,11 +1,4 @@
-link "c"
-
-extern proc malloc int64 -- ptr ;
-extern proc free ptr -- ;
-extern proc putchar int64 -- ;
-
-proc ptr+ ptr int64 -- ptr { swap >int64 + >ptr }
-proc +ptr int64 ptr -- ptr { >int64 + >ptr }
+include "../std/c.dpt"
 
 proc main -- int64 {
     6 malloc
