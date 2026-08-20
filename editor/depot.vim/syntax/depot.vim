@@ -7,7 +7,7 @@ syn match   depotNumber  "\<\d\+#[a-zA-Z0-9]\+"
 syn keyword depotBoolean true false
 
 syn match  depotEscape /\\[nrtvab\\0]/ contained
-syn region depotString start=/"/ end=/"/ skip=/\\"/ contains=depotEscape
+syn region depotString start=/"/ skip=/\\"/ end=/"/ contains=depotEscape
 
 syn match   depotOperator #\<[-+*/;{}=]\>#
 syn match   depotOperator #\<[<>]=\?\>#
