@@ -49,6 +49,18 @@ link "<lib>"
 extern proc <symbol-name> <arity> ;
 ```
 
+- `include` -- include another Depot source
+
+```depot
+include "<file_path>"
+```
+
+- `memory` -- static global memory allocation definition
+
+```depot
+memory <name> <size:int64>
+```
+
 - `while` -- while loop block
 
 > [!NOTE]
