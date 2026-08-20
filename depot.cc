@@ -920,6 +920,7 @@ struct Da_Thing {
     std::vector<std::string> strings;
     std::unordered_map<std::string, Proc> procs;
     std::unordered_map<std::string, Extern_Proc> extern_procs;
+    std::vector<std::filesystem::path> extra_include_paths;
 };
 
 static std::set<std::filesystem::path> included_paths { };
@@ -1407,23 +1408,35 @@ struct Parser {
             = std::filesystem::path(std::get<std::string>(path.value().as))
                   .lexically_normal();
 
-        auto current_dir = current_file;
-        current_dir.remove_filename();
-        if (current_dir.empty())
-            current_dir = ".";
+        const auto current_dir
+            = (std::filesystem::current_path() / current_file)
+                  .lexically_normal()
+                  .remove_filename();
 
-        const std::array<std::filesystem::path, 10> roots = {
+        std::vector<std::filesystem::path> roots = {
+            // relative to input file
             current_dir,
             current_dir / "lib",
             current_dir / "include",
+            // relative to current working directory
+            // NOTE: may cause problems in the future
             std::filesystem::current_path(),
             std::filesystem::current_path() / "lib",
             std::filesystem::current_path() / "include",
+            // NOTE: platform specific paths
             "/usr/include",
             "/usr/lib/depot",
             "/usr/local/include",
             "/usr/local/lib/depot",
         };
+        roots.append_range(
+            ctx.extra_include_paths
+            | std::views::transform([](const std::filesystem::path& path) {
+                  return path.is_relative()
+                           ? (std::filesystem::current_path() / path)
+                                 .lexically_normal()
+                           : path.lexically_normal();
+              }));
         std::optional<std::filesystem::path> found = std::nullopt;
 
         if (std::filesystem::exists(include_path))
@@ -2839,24 +2852,64 @@ bool typecheck(const Da_Thing& ctx)
 }
 // }}}
 
-void usage(FILE* out, const char* program_name)
+void usage(FILE* out, std::string_view program_name)
 {
-    std::println(out, "Usage: {} <file.dpt>", program_name);
+    std::println(out, "Usage: {} [FLAGS] <file.dpt>", program_name);
+    std::println(out, "FLAGS:");
+    std::println(out, "\t-I|-include <dir>\t\tadditional include directory");
 }
 
 int main(int argc, char** argv)
 {
-    const char* program_name = argv[0];
+    std::string program_name { argv[0] };
 
-    if (argc != 2) {
+    argc--;
+    argv++;
+
+    Da_Thing ctx;
+
+    std::vector<std::string> arg_stack { argv, argv + argc };
+    std::ranges::reverse(arg_stack);
+
+    std::vector<std::string> positionals;
+    while (!arg_stack.empty()) {
+        const auto& arg = arg_stack.back();
+        arg_stack.pop_back();
+
+        if (arg.starts_with("-")) {
+            if (arg == "-I" || arg == "-include") {
+                if (arg_stack.empty()) {
+                    usage(stderr, program_name);
+                    std::println(stderr,
+                                 "error: expected path, but got nothing");
+                    return 1;
+                }
+                ctx.extra_include_paths.push_back(arg_stack.back());
+                arg_stack.pop_back();
+            } else {
+                usage(stderr, program_name);
+                std::println(stderr, "error: unknown flag '{}'", arg);
+                return 1;
+            }
+        } else
+            positionals.push_back(arg);
+    }
+
+    if (positionals.empty()) {
         usage(stderr, program_name);
+        std::println(stderr, "erorr: expected file path, but got nothing");
+        return 1;
+    } else if (positionals.size() > 1) {
+        usage(stderr, program_name);
+        std::println(stderr,
+                     "erorr: too many positional arguments, expected only one");
         return 1;
     }
 
-    const std::string argv1 { argv[1] };
-    const std::filesystem::path file_path = argv1;
+    std::filesystem::path file_path { positionals.back() };
+    file_path = file_path.lexically_normal();
 
-    included_paths.insert(file_path.lexically_normal());
+    included_paths.insert(file_path);
 
     Lexer l { file_path };
     if (l.has_error)
@@ -2873,15 +2926,14 @@ int main(int argc, char** argv)
     }
 #endif
 
-    Da_Thing o;
-    Parser p { toks, o, file_path };
+    Parser p { toks, ctx, file_path };
 
     if (!p.parse())
         return 4;
 
 #ifdef DEPOT_DEBUG
     std::println("OPS:");
-    for (const auto& op : o.ops) {
+    for (const auto& op : ctx.ops) {
         std::print("{}: {}", op.tok.loc, human(op.kind));
         static_assert(std::variant_size_v<Op::As> == 2,
                       "Exhaustive handling of Op::As variants");
@@ -2894,14 +2946,17 @@ int main(int argc, char** argv)
     }
 #endif
 
-    if (!o.procs.contains("main")) {
-        std::println(stderr, "{}: error: no `main` procedure found", argv1);
-        std::println("{}: note: consider adding procedure main", argv1);
+    if (!ctx.procs.contains("main")) {
+        const auto file_path_str = file_path.string();
+        std::println(stderr,
+                     "{}: error: no `main` procedure found",
+                     file_path_str);
+        std::println("{}: note: consider adding procedure main", file_path_str);
         return 5;
     }
 
     static const Type_Sig expected_sig { { }, { builtin_types.at("int64") } };
-    if (const auto main_proc = o.procs.at("main");
+    if (const auto main_proc = ctx.procs.at("main");
         main_proc.sig != expected_sig) {
         std::println(stderr,
                      "{}: error: expected `main` procedure to have type "
@@ -2912,10 +2967,10 @@ int main(int argc, char** argv)
         return 5;
     }
 
-    if (!typecheck(o))
+    if (!typecheck(ctx))
         return 5;
 
-    if (!compile(Target::x86_64_Gas, file_path, o))
+    if (!compile(Target::x86_64_Gas, file_path, ctx))
         return 6;
 
     for (const auto& [name, time] : performance_map)
