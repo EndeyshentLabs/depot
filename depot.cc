@@ -2963,8 +2963,34 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.pop_back();
             stack.push_back(bool_type);
             break;
+        case Op::Kind::While:
+            blocks.push_back(std::make_pair(stack, op.kind));
+            break;
+        case Op::Kind::Do: {
+            ASSERT(blocks.size() >= 1
+                       && (blocks.back().second == Op::Kind::While),
+                   "Compiler Bug: Do in typechecker");
+            if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
+                return false;
+            stack.pop_back();
+            const auto expected_stack = blocks.back().first;
+            if (!ensure_stack<false>(op, stack, expected_stack, true)) {
+                std::println(stderr,
+                             "{}: error: stack altered by `while-do` condition",
+                             op.tok.loc);
+
+                std::println("{}: note: got stack: {:s}",
+                             op.tok.loc,
+                             typestack_to_string(stack));
+
+                std::println("{}: note: expected stack: {:s}",
+                             op.tok.loc,
+                             typestack_to_string(expected_stack));
+
+                return false;
+            }
+        } break;
         case Op::Kind::If:
-        case Op::Kind::Do:
             if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
                 return false;
             stack.pop_back();
@@ -3050,7 +3076,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
                        human(blocks.back().second));
             break;
         case Op::Kind::End_While: {
-            ASSERT(blocks.back().second == Op::Kind::Do,
+            ASSERT(blocks.back().second == Op::Kind::While,
                    "Compiler Bug: unreachable in typechecker, End_While closes "
                    "{} operation and this is not allowed",
                    human(blocks.back().second));
@@ -3159,8 +3185,6 @@ bool typecheck_and_sema(Da_Thing& ctx)
             op.kind = Op::Kind::Proc_Call;
             op.as = proc.name;
         } break;
-        case Op::Kind::While:
-            break;
         }
     }
 
