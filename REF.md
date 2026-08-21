@@ -54,10 +54,11 @@ dispatch <dispatch-name> proc <proc-name> [type-sig] {
 ```
 
 When `<dispatch-name>` is encountered in the source code, current stack state is
-matched against all procedure with this `<dispatch-name>` and if there is
-exactly 1 (one) compatible procedure it will called automatically. If the call
-is ambiguous (i.e. there is more than one procedure with compatible signature)
-the `<proc-name>` can be used, instead of `<dispatch-name>`.
+matched against type signatures of all procedures with this `<dispatch-name>`
+and if there is exactly 1 (one) compatible procedure it will called
+automatically. If the call is ambiguous (i.e. there is more than one procedure
+with compatible signature) the `<proc-name>` can be used instead of
+`<dispatch-name>`.
 
 A better name for this functionality would be "explicit procedure overloading"
 (by @LensPlaysGames on GitHub).
