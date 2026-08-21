@@ -1148,7 +1148,7 @@ struct Parser {
         return std::make_optional(result);
     }
 
-    std::optional<std::string> parse_proc(std::vector<Op>& ops)
+    std::optional<std::string> parse_proc()
     {
         const auto self = toks.back();
         toks.pop_back();
@@ -1207,13 +1207,15 @@ struct Parser {
         }
 
         current_proc_name = proc_str;
-        ctx.procs.emplace(
-            proc_str,
-            Proc { self, proc_str, static_cast<s64>(ops.size()), sig.value() });
-        ops.emplace_back(self, Op::Kind::Proc_Start, proc_str);
+        ctx.procs.emplace(proc_str,
+                          Proc { self,
+                                 proc_str,
+                                 static_cast<s64>(ctx.ops.size()),
+                                 sig.value() });
+        ctx.ops.emplace_back(self, Op::Kind::Proc_Start, proc_str);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
-            if (!parse_token(ops, toks.back())) {
+            if (!parse_token(toks.back())) {
                 note(self.loc, "inside of this procedure body");
                 return std::nullopt;
             }
@@ -1226,7 +1228,9 @@ struct Parser {
             return std::nullopt;
         }
 
-        ops.emplace_back(close_curly.value(), Op::Kind::Proc_Return, proc_str);
+        ctx.ops.emplace_back(close_curly.value(),
+                             Op::Kind::Proc_Return,
+                             proc_str);
 
         current_proc_name = "";
 
@@ -1256,7 +1260,7 @@ struct Parser {
         return true;
     }
 
-    bool parse_if(std::vector<Op>& ops, bool elif = false)
+    bool parse_if(bool elif = false)
     {
         const auto self = toks.back();
         toks.pop_back();
@@ -1265,16 +1269,16 @@ struct Parser {
         if (elif)
             block_name = "elif";
 
-        const auto jump_if_index = ops.size();
+        const auto jump_if_index = ctx.ops.size();
 
         if (elif)
-            ops.emplace_back(self, Op::Kind::Elif, 1337);
+            ctx.ops.emplace_back(self, Op::Kind::Elif, 1337);
         else
-            ops.emplace_back(self, Op::Kind::If, 1337);
+            ctx.ops.emplace_back(self, Op::Kind::If, 1337);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Then
                && toks.back().kind != Token::Kind::Else) {
-            if (!parse_token(ops, toks.back())) {
+            if (!parse_token(toks.back())) {
                 note(self.loc, "inside of this {} block", block_name);
                 return false;
             }
@@ -1292,15 +1296,17 @@ struct Parser {
             if (elif)
                 toks.pop_back();
 
-            const auto jump_index = ops.size();
-            ops.emplace_back(else_or_then_tok.value(), Op::Kind::Else, 1337);
-            ops[jump_if_index].as = static_cast<s64>(ops.size());
+            const auto jump_index = ctx.ops.size();
+            ctx.ops.emplace_back(else_or_then_tok.value(),
+                                 Op::Kind::Else,
+                                 1337);
+            ctx.ops[jump_if_index].as = static_cast<s64>(ctx.ops.size());
 
             while (!toks.empty() && toks.back().kind != Token::Kind::Then) {
                 if (toks.back().kind == Token::Kind::Elif) {
-                    if (!parse_elif(ops))
+                    if (!parse_elif())
                         return false;
-                } else if (!parse_token(ops, toks.back())) {
+                } else if (!parse_token(toks.back())) {
                     note(else_or_then_tok->loc, "inside of this else branch");
                     note(self.loc, "inside of this {} block", block_name);
                     return false;
@@ -1314,10 +1320,10 @@ struct Parser {
                     return false;
                 }
 
-                ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
+                ctx.ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
             }
 
-            ops[jump_index].as = static_cast<s64>(ops.size());
+            ctx.ops[jump_index].as = static_cast<s64>(ctx.ops.size());
         } else { // else_or_then_tok->kind == Token::Kind::Then
             if (elif) {
                 error(else_or_then_tok->loc,
@@ -1328,27 +1334,24 @@ struct Parser {
                      "consider adding `else` branch to resolve the error");
                 return false;
             }
-            ops[jump_if_index].as = static_cast<s64>(ops.size());
-            ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
+            ctx.ops[jump_if_index].as = static_cast<s64>(ctx.ops.size());
+            ctx.ops.emplace_back(else_or_then_tok.value(), Op::Kind::Then);
         }
 
         return true;
     }
 
-    constexpr bool parse_elif(std::vector<Op>& ops)
-    {
-        return parse_if(ops, true);
-    }
+    constexpr bool parse_elif() { return parse_if(true); }
 
-    bool parse_while(std::vector<Op>& ops)
+    bool parse_while()
     {
         const auto self = toks.back();
         toks.pop_back();
 
-        const s64 cond_op_index = ops.size();
-        ops.emplace_back(self, Op::Kind::While);
+        const s64 cond_op_index = ctx.ops.size();
+        ctx.ops.emplace_back(self, Op::Kind::While);
         while (!toks.empty() && toks.back().kind != Token::Kind::Open_Curly) {
-            if (!parse_token(ops, toks.back())) {
+            if (!parse_token(toks.back())) {
                 note(self.loc, "inside of this while loop body");
                 return false;
             }
@@ -1360,10 +1363,10 @@ struct Parser {
             return false;
         }
 
-        const u64 jump_if_index = ops.size();
-        ops.emplace_back(open_curly.value(), Op::Kind::Do, 1337);
+        const u64 jump_if_index = ctx.ops.size();
+        ctx.ops.emplace_back(open_curly.value(), Op::Kind::Do, 1337);
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
-            if (!parse_token(ops, toks.back())) {
+            if (!parse_token(toks.back())) {
                 note(self.loc, "inside of this while loop body");
                 return false;
             }
@@ -1375,10 +1378,10 @@ struct Parser {
             note(open_curly->loc, "opened here");
             return false;
         }
-        ops.emplace_back(close_curly.value(),
-                         Op::Kind::End_While,
-                         cond_op_index);
-        ops[jump_if_index].as = static_cast<s64>(ops.size());
+        ctx.ops.emplace_back(close_curly.value(),
+                             Op::Kind::End_While,
+                             cond_op_index);
+        ctx.ops[jump_if_index].as = static_cast<s64>(ctx.ops.size());
 
         return true;
     }
@@ -1614,7 +1617,7 @@ struct Parser {
         return true;
     }
 
-    bool parse_dispatch(std::vector<Op>& ops)
+    bool parse_dispatch()
     {
         const auto self = toks.back();
         toks.pop_back();
@@ -1630,7 +1633,7 @@ struct Parser {
             return false;
         }
 
-        const auto proc = parse_proc(ops);
+        const auto proc = parse_proc();
         if (!proc.has_value()) {
             note(self.loc, "in the procedure of this dispatch construction");
             return false;
@@ -1641,7 +1644,7 @@ struct Parser {
         return true;
     }
 
-    bool parse_token(std::vector<Op>& ops, const Token& t)
+    bool parse_token(const Token& t)
     {
         switch (t.kind) {
         case Token::Kind::Proc:
@@ -1652,7 +1655,7 @@ struct Parser {
                 return false;
             }
 
-            if (!parse_proc(ops))
+            if (!parse_proc())
                 return false;
             break;
         case Token::Kind::Link:
@@ -1674,7 +1677,7 @@ struct Parser {
                 return false;
             }
 
-            ops.emplace_back(t, Op::Kind::Push_Int, std::get<s64>(t.as));
+            ctx.ops.emplace_back(t, Op::Kind::Push_Int, std::get<s64>(t.as));
             toks.pop_back();
         } break;
         case Token::Kind::Ident:
@@ -1688,7 +1691,7 @@ struct Parser {
                     return false;
                 }
 
-                ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
+                ctx.ops.emplace_back(t, Op::Kind::Proc_Call, t.text);
                 toks.pop_back();
                 break;
             case Name_Availabilty::Exists_Extern_Proc:
@@ -1700,7 +1703,7 @@ struct Parser {
                     return false;
                 }
 
-                ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
+                ctx.ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
                 toks.pop_back();
                 break;
             case Name_Availabilty::Exists_Memory: {
@@ -1714,7 +1717,7 @@ struct Parser {
 
                 const auto it = find_memory_def(ctx, t.text);
                 ASSERT(it != ctx.memories.end(), "Compiler Bug");
-                ops.emplace_back(
+                ctx.ops.emplace_back(
                     t,
                     Op::Kind::Push_Global_Memory,
                     std::ranges::distance(ctx.memories.begin(), it));
@@ -1730,7 +1733,7 @@ struct Parser {
                     return false;
                 }
 
-                ops.emplace_back(t, Op::Kind::Dispatch, t.text);
+                ctx.ops.emplace_back(t, Op::Kind::Dispatch, t.text);
                 toks.pop_back();
                 break;
             case Name_Availabilty::Exists_Builtin_Type:
@@ -1751,12 +1754,12 @@ struct Parser {
 
             const auto str = std::get<std::string>(t.as);
 
-            ops.emplace_back(t,
-                             Op::Kind::Push_Int,
-                             static_cast<s64>(str.size()));
-            ops.emplace_back(t,
-                             Op::Kind::Push_Str,
-                             static_cast<s64>(ctx.strings.size()));
+            ctx.ops.emplace_back(t,
+                                 Op::Kind::Push_Int,
+                                 static_cast<s64>(str.size()));
+            ctx.ops.emplace_back(t,
+                                 Op::Kind::Push_Str,
+                                 static_cast<s64>(ctx.strings.size()));
             ctx.strings.push_back(str);
             toks.pop_back();
         } break;
@@ -1767,7 +1770,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            if (!parse_if(ops))
+            if (!parse_if())
                 return false;
             break;
         case Token::Kind::While:
@@ -1778,7 +1781,7 @@ struct Parser {
                 return false;
             }
 
-            if (!parse_while(ops))
+            if (!parse_while())
                 return false;
             break;
         case Token::Kind::Extern:
@@ -1800,7 +1803,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Drop);
+            ctx.ops.emplace_back(t, Op::Kind::Drop);
             toks.pop_back();
             break;
         case Token::Kind::Dup:
@@ -1811,7 +1814,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Dup);
+            ctx.ops.emplace_back(t, Op::Kind::Dup);
             toks.pop_back();
             break;
         case Token::Kind::Swap:
@@ -1822,7 +1825,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Swap);
+            ctx.ops.emplace_back(t, Op::Kind::Swap);
             toks.pop_back();
             break;
         case Token::Kind::Rot:
@@ -1833,7 +1836,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Rot);
+            ctx.ops.emplace_back(t, Op::Kind::Rot);
             toks.pop_back();
             break;
         case Token::Kind::Over:
@@ -1844,7 +1847,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Over);
+            ctx.ops.emplace_back(t, Op::Kind::Over);
             toks.pop_back();
             break;
         case Token::Kind::Plus:
@@ -1855,7 +1858,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Plus);
+            ctx.ops.emplace_back(t, Op::Kind::Plus);
             toks.pop_back();
             break;
         case Token::Kind::Minus:
@@ -1866,7 +1869,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Minus);
+            ctx.ops.emplace_back(t, Op::Kind::Minus);
             toks.pop_back();
             break;
         case Token::Kind::Mult:
@@ -1877,7 +1880,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Mult);
+            ctx.ops.emplace_back(t, Op::Kind::Mult);
             toks.pop_back();
             break;
         case Token::Kind::Div:
@@ -1888,7 +1891,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Div);
+            ctx.ops.emplace_back(t, Op::Kind::Div);
             toks.pop_back();
             break;
         case Token::Kind::Mod:
@@ -1899,7 +1902,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Mod);
+            ctx.ops.emplace_back(t, Op::Kind::Mod);
             toks.pop_back();
             break;
         case Token::Kind::Equal:
@@ -1911,7 +1914,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Equal);
+            ctx.ops.emplace_back(t, Op::Kind::Equal);
             toks.pop_back();
             break;
         case Token::Kind::Not_Equal:
@@ -1923,7 +1926,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Not_Equal);
+            ctx.ops.emplace_back(t, Op::Kind::Not_Equal);
             toks.pop_back();
             break;
         case Token::Kind::Less_Than:
@@ -1935,7 +1938,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Less_Than);
+            ctx.ops.emplace_back(t, Op::Kind::Less_Than);
             toks.pop_back();
             break;
         case Token::Kind::Less_Equal:
@@ -1947,7 +1950,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Less_Equal);
+            ctx.ops.emplace_back(t, Op::Kind::Less_Equal);
             toks.pop_back();
             break;
         case Token::Kind::Greater_Than:
@@ -1959,7 +1962,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Greater_Than);
+            ctx.ops.emplace_back(t, Op::Kind::Greater_Than);
             toks.pop_back();
             break;
         case Token::Kind::Greater_Equal:
@@ -1971,7 +1974,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Greater_Equal);
+            ctx.ops.emplace_back(t, Op::Kind::Greater_Equal);
             toks.pop_back();
             break;
         case Token::Kind::Load64:
@@ -1983,7 +1986,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Load64);
+            ctx.ops.emplace_back(t, Op::Kind::Load64);
             toks.pop_back();
             break;
         case Token::Kind::Load32:
@@ -1995,7 +1998,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Load32);
+            ctx.ops.emplace_back(t, Op::Kind::Load32);
             toks.pop_back();
             break;
         case Token::Kind::Load16:
@@ -2007,7 +2010,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Load16);
+            ctx.ops.emplace_back(t, Op::Kind::Load16);
             toks.pop_back();
             break;
         case Token::Kind::Load8:
@@ -2019,7 +2022,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Load8);
+            ctx.ops.emplace_back(t, Op::Kind::Load8);
             toks.pop_back();
             break;
         case Token::Kind::Store64:
@@ -2031,7 +2034,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Store64);
+            ctx.ops.emplace_back(t, Op::Kind::Store64);
             toks.pop_back();
             break;
         case Token::Kind::Store32:
@@ -2043,7 +2046,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Store32);
+            ctx.ops.emplace_back(t, Op::Kind::Store32);
             toks.pop_back();
             break;
         case Token::Kind::Store16:
@@ -2055,7 +2058,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Store16);
+            ctx.ops.emplace_back(t, Op::Kind::Store16);
             toks.pop_back();
             break;
         case Token::Kind::Store8:
@@ -2067,7 +2070,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Store8);
+            ctx.ops.emplace_back(t, Op::Kind::Store8);
             toks.pop_back();
             break;
         case Token::Kind::To_Int64:
@@ -2079,7 +2082,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::To_Int64);
+            ctx.ops.emplace_back(t, Op::Kind::To_Int64);
             toks.pop_back();
             break;
         case Token::Kind::To_Ptr:
@@ -2091,7 +2094,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::To_Ptr);
+            ctx.ops.emplace_back(t, Op::Kind::To_Ptr);
             toks.pop_back();
             break;
         case Token::Kind::To_Bool:
@@ -2103,7 +2106,7 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::To_Bool);
+            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
             toks.pop_back();
             break;
         case Token::Kind::True:
@@ -2115,8 +2118,8 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Push_Int, 1);
-            ops.emplace_back(t, Op::Kind::To_Bool);
+            ctx.ops.emplace_back(t, Op::Kind::Push_Int, 1);
+            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
             toks.pop_back();
             break;
         case Token::Kind::False:
@@ -2128,8 +2131,8 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ops.emplace_back(t, Op::Kind::Push_Int, 0);
-            ops.emplace_back(t, Op::Kind::To_Bool);
+            ctx.ops.emplace_back(t, Op::Kind::Push_Int, 0);
+            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
             toks.pop_back();
             break;
         case Token::Kind::Include:
@@ -2164,7 +2167,7 @@ struct Parser {
                 return false;
             }
 
-            if (!parse_dispatch(ops))
+            if (!parse_dispatch())
                 return false;
             break;
         case Token::Kind::Elif:
@@ -2189,7 +2192,7 @@ struct Parser {
         while (!toks.empty()) {
             const auto& t = toks.back();
 
-            if (!parse_token(ctx.ops, t) || has_error)
+            if (!parse_token(t) || has_error)
                 return false;
         }
 
