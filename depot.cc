@@ -3202,6 +3202,8 @@ bool typecheck_and_sema(Da_Thing& ctx)
 
             const auto& proc = matches.back();
 
+            op.kind = Op::Kind::Proc_Call;
+            op.as = proc.name;
             // NOTE: copypasting
             if (!ensure_stack(op, stack, proc.sig.input_types)) {
                 std::println("{}: note: for this dispatched procedure",
@@ -3213,8 +3215,6 @@ bool typecheck_and_sema(Da_Thing& ctx)
                 stack.pop_back();
 
             stack.append_range(proc.sig.return_types);
-            op.kind = Op::Kind::Proc_Call;
-            op.as = proc.name;
         } break;
         }
     }
