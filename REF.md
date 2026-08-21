@@ -139,47 +139,47 @@ Signature: `x y - x y x`
 
 - `+` -- sum up the top two elements
 
-Signature `x y -- x+y`
+Signature: `x y -- x+y`
 
 - `-` -- subtract top element from element below the top
 
-Signature `x y -- x-y`
+Signature: `x y -- x-y`
 
 - `*` -- multiply the top two elements
 
-Signature `x y -- x*y`
+Signature: `x y -- x*y`
 
 - `/` -- divide element below the top by the top element
 
-Signature `x y -- x/y`
+Signature: `x y -- x/y`
 
 - `mod` -- remained of `/`
 
-Signature `x y -- x%y`
+Signature: `x y -- x%y`
 
 - `=` -- equality comparison
 
-Signature `x y -- x==y`
+Signature: `x y -- x==y`
 
 - `!=` -- not-equal comparison
 
-Signature `x y -- x!=y`
+Signature: `x y -- x!=y`
 
 - `<` -- less-than comparison
 
-Signature `x y -- x<y`
+Signature: `x y -- x<y`
 
 - `<=` -- less-than-or-equal comparison
 
-Signature `x y -- x<=y`
+Signature: `x y -- x<=y`
 
 - `>` -- greater-than comparison
 
-Signature `x y -- x>y`
+Signature: `x y -- x>y`
 
 - `>=` -- greater-than-or-equal comparison
 
-Signature `x y -- x>=y`
+Signature: `x y -- x>=y`
 
 - `@<size>` -- dereference a pointer to value of size `<size>`
 
@@ -189,7 +189,7 @@ Available sizes (**NOTE:** architecture dependant):
 - 16
 - 8
 
-Signature `x-addr -- x`
+Signature: `x-addr -- x`
 
 - `!<size>` -- store a value of size `<size>` to memory
 
@@ -199,16 +199,16 @@ Available sizes (**NOTE:** architecture dependant):
 - 16
 - 8
 
-Signature `x x-addr --`
+Signature: `x x-addr --`
 
 - `>int64` -- convert top element to an `int64`
 
-Signature `x:any_type -- x:int64`
+Signature: `x:any_type -- x:int64`
 
 - `>bool` -- convert top element to a `bool`
 
-Signature `x:any_type -- x:bool`
+Signature: `x:any_type -- x:bool`
 
 - `>ptr` -- convert top element to a `ptr`
 
-Signature `x:any_type -- x:ptr`
+Signature: `x:any_type -- x:ptr`
