@@ -20,7 +20,7 @@ syn keyword depotConditional if elif else then
 syn keyword depotRepeat      while
 
 syn keyword depotKeywords link include nextgroup=depotString
-syn keyword depotKeywords proc extern memory
+syn keyword depotKeywords proc extern memory dispatch
 
 syn keyword depotTypes int64 ptr bool
 
