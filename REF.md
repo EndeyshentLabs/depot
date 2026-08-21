@@ -45,6 +45,23 @@ proc <name> [type-sig] {
 }
 ```
 
+- `dispatch` -- define a dispatchable procedure
+
+```depot
+dispatch <dispatch-name> proc <proc-name> [type-sig] {
+    <body>
+}
+```
+
+When `<dispatch-name>` is encountered in the source code, current stack state is
+matched against all procedure with this `<dispatch-name>` and if there is
+exactly 1 (one) compatible procedure it will called automatically. If the call
+is ambiguous (i.e. there is more than one procedure with compatible signature)
+the `<proc-name>` can be used, instead of `<dispatch-name>`.
+
+A better name for this functionality would be "explicit procedure overloading"
+(by @LensPlaysGames on GitHub).
+
 - `link` -- link with library
 
 Passed as `-l<lib>` to linker
@@ -182,3 +199,15 @@ Available sizes (**NOTE:** architecture dependant):
 - 8
 
 Signature `x x-addr --`
+
+- `>int64` -- convert top element to an `int64`
+
+Signature `x:any_type -- x:int64`
+
+- `>bool` -- convert top element to a `bool`
+
+Signature `x:any_type -- x:bool`
+
+- `>ptr` -- convert top element to a `ptr`
+
+Signature `x:any_type -- x:ptr`
