@@ -935,11 +935,53 @@ struct Type_Sig {
     }
 };
 
+constexpr auto typestack_to_string(std::span<const Type> s)
+{
+    return std::views::join_with(
+        std::views::transform(
+            s,
+            [](const Type& t) -> std::string_view { return t.name; }),
+        " ");
+}
+
+template <>
+struct std::formatter<Type_Sig> {
+    template <typename PC>
+    constexpr PC::iterator parse(PC& ctx)
+    {
+        return ctx.begin();
+    }
+
+    template <typename FC>
+    FC::iterator format(const Type_Sig& sig, FC& ctx) const
+    {
+        return std::format_to(ctx.out(),
+                              "{:s} -- {:s}",
+                              typestack_to_string(sig.input_types),
+                              typestack_to_string(sig.return_types));
+    }
+};
+
 struct Proc {
     Token tok;
     std::string name;
     s64 op_index;
     Type_Sig sig;
+};
+
+template <>
+struct std::formatter<Proc> {
+    template <typename PC>
+    constexpr PC::iterator parse(PC& ctx)
+    {
+        return ctx.begin();
+    }
+
+    template <typename FC>
+    FC::iterator format(const Proc& p, FC& ctx) const
+    {
+        return std::format_to(ctx.out(), "proc {} {}", p.name, p.sig);
+    }
 };
 
 struct Extern_Proc {
@@ -2714,23 +2756,6 @@ bool ensure_stack(const Op& self,
     return true;
 }
 
-constexpr auto typestack_to_string(std::span<const Type> s)
-{
-    return std::views::join_with(
-        std::views::transform(
-            s,
-            [](const Type& t) -> std::string_view { return t.name; }),
-        " ");
-}
-
-constexpr auto proc_to_string(const Proc& proc)
-{
-    return std::format("proc {} {:s} -- {:s}",
-                       proc.name,
-                       typestack_to_string(proc.sig.input_types),
-                       typestack_to_string(proc.sig.return_types));
-}
-
 bool typecheck_and_sema(Da_Thing& ctx)
 {
     using Typestack = std::vector<Type>;
@@ -2747,7 +2772,8 @@ bool typecheck_and_sema(Da_Thing& ctx)
     for (auto& op : ctx.ops) {
         switch (op.kind) {
         case Op::Kind::Proc_Start:
-            ASSERT(stack.size() == 0, "Compiler Bug");
+            ASSERT(stack.size() == 0,
+                   "Compiler Bug: Proc_Start in typechecker");
             stack.append_range(
                 ctx.procs.at(std::get<std::string>(op.as)).sig.input_types);
             break;
@@ -3008,6 +3034,8 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack = blocks.at(blocks.size() - 2).first;
             break;
         case Op::Kind::Then:
+            ASSERT(!blocks.empty(), "Compiler Bug: Then in typechecker");
+
             if (blocks.back().second == Op::Kind::If) {
                 const auto expected_stack = blocks.back().first;
                 blocks.pop_back();
@@ -3079,7 +3107,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
                        human(blocks.back().second));
             break;
         case Op::Kind::End_While: {
-            ASSERT(blocks.back().second == Op::Kind::While,
+            ASSERT(!blocks.empty() && blocks.back().second == Op::Kind::While,
                    "Compiler Bug: unreachable in typechecker, End_While closes "
                    "{} operation and this is not allowed",
                    human(blocks.back().second));
@@ -3103,7 +3131,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
             }
         } break;
         case Op::Kind::Elif: {
-            ASSERT(blocks.back().second == Op::Kind::Else
+            ASSERT(!blocks.empty() && blocks.back().second == Op::Kind::Else
                        || blocks.back().second == Op::Kind::Elif,
                    "Compiler Bug: unreachable in typechecker, Else_If closes "
                    "{} operation and this is not allowed",
@@ -3152,7 +3180,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
                     const auto proc = ctx.procs.at(it->second);
                     std::println("{}: note: candidate: `{}`",
                                  proc.tok.loc,
-                                 proc_to_string(proc));
+                                 proc);
                 }
 
                 return false;
@@ -3166,7 +3194,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
                 for (const auto& proc : matches) {
                     std::println("{}: note: matched candidate: `{}`",
                                  proc.tok.loc,
-                                 proc_to_string(proc));
+                                 proc);
                 }
 
                 return false;
