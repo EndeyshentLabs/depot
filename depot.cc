@@ -47,6 +47,18 @@ using ssz = std::ptrdiff_t;
 
 using f32 = float;
 using f64 = double;
+
+namespace fs {
+using namespace std::filesystem;
+}
+
+namespace rgs {
+using namespace std::ranges;
+}
+
+namespace vws {
+using namespace std::ranges::views;
+}
 // }}}
 
 // UTIL {{{
@@ -215,7 +227,7 @@ Better_Strtoll_Result better_strtoll(const std::string& str, s32 base = 10)
 
 // DEPOT SOURCE LOCATION {{{
 struct Location {
-    std::filesystem::path file_path { };
+    fs::path file_path { };
     u64 row { 0 };
     u64 col { 0 };
 };
@@ -478,7 +490,7 @@ struct Lexer {
 
     bool has_error { false };
 
-    Lexer(const std::filesystem::path& path)
+    Lexer(const fs::path& path)
     {
         std::ifstream file { path };
 
@@ -937,8 +949,8 @@ struct Type_Sig {
 
 constexpr auto typestack_to_string(std::span<const Type> s)
 {
-    return std::views::join_with(
-        std::views::transform(
+    return vws::join_with(
+        vws::transform(
             s,
             [](const Type& t) -> std::string_view { return t.name; }),
         " ");
@@ -1005,33 +1017,33 @@ struct Da_Thing {
     std::vector<Memory> memories;
     std::unordered_map<std::string, Proc> procs;
     std::unordered_map<std::string, Extern_Proc> extern_procs;
-    std::vector<std::filesystem::path> extra_include_paths;
+    std::vector<fs::path> extra_include_paths;
     std::unordered_multimap<std::string, std::string> dispatch_groups;
 };
 
 constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
 {
-    return std::ranges::find_if(
+    return rgs::find_if(
         ctx.memories,
         [&name](const Memory& mem) -> bool { return mem.name == name; });
 }
 
-static std::set<std::filesystem::path> included_paths { };
+static std::set<fs::path> included_paths { };
 struct Parser {
     std::vector<Token> toks;
     bool has_error { false };
     Da_Thing& ctx;
-    std::filesystem::path current_file { };
+    fs::path current_file { };
     std::string_view current_proc_name { };
 
     Parser(std::span<Token> toks,
            Da_Thing& ctx,
-           const std::filesystem::path& file_path)
+           const fs::path& file_path)
         : toks { toks.size() }
         , ctx { ctx }
         , current_file { file_path }
     {
-        this->toks.assign_range(std::ranges::reverse_view(toks));
+        this->toks.assign_range(rgs::reverse_view(toks));
     }
 
     enum struct Name_Availabilty {
@@ -1105,10 +1117,10 @@ struct Parser {
     {
         const auto kind_strings
             = kinds
-            | std::ranges::views::transform(
+            | vws::transform(
                   [](Token::Kind k) -> std::string_view { return human(k); });
-        const auto ored_kinds = std::ranges::to<std::string>(
-            std::views::join_with(kind_strings, " or "));
+        const auto ored_kinds = rgs::to<std::string>(
+            vws::join_with(kind_strings, " or "));
 
         if (toks.size() <= 0) {
             error(self.loc, "expected {:s}, but got nothing", ored_kinds);
@@ -1542,24 +1554,24 @@ struct Parser {
         }
 
         const auto include_path
-            = std::filesystem::path(std::get<std::string>(path.value().as))
+            = fs::path(std::get<std::string>(path.value().as))
                   .lexically_normal();
 
         const auto current_dir
-            = (std::filesystem::current_path() / current_file)
+            = (fs::current_path() / current_file)
                   .lexically_normal()
                   .remove_filename();
 
-        std::vector<std::filesystem::path> roots = {
+        std::vector<fs::path> roots = {
             // relative to input file
             current_dir,
             current_dir / "lib",
             current_dir / "include",
             // relative to current working directory
             // NOTE: may cause problems in the future
-            std::filesystem::current_path(),
-            std::filesystem::current_path() / "lib",
-            std::filesystem::current_path() / "include",
+            fs::current_path(),
+            fs::current_path() / "lib",
+            fs::current_path() / "include",
             // NOTE: platform specific paths
             "/usr/include",
             "/usr/lib/depot",
@@ -1568,20 +1580,20 @@ struct Parser {
         };
         roots.append_range(
             ctx.extra_include_paths
-            | std::views::transform([](const std::filesystem::path& path) {
+            | vws::transform([](const fs::path& path) {
                   return path.is_relative()
-                           ? (std::filesystem::current_path() / path)
+                           ? (fs::current_path() / path)
                                  .lexically_normal()
                            : path.lexically_normal();
               }));
-        std::optional<std::filesystem::path> found = std::nullopt;
+        std::optional<fs::path> found = std::nullopt;
 
-        if (std::filesystem::exists(include_path))
+        if (fs::exists(include_path))
             found = include_path;
         else
             for (const auto& root : roots) {
                 const auto path = root / include_path;
-                if (std::filesystem::exists(path)) {
+                if (fs::exists(path)) {
                     found = path.lexically_normal();
                     break;
                 }
@@ -1762,7 +1774,7 @@ struct Parser {
                 ctx.ops.emplace_back(
                     t,
                     Op::Kind::Push_Global_Memory,
-                    std::ranges::distance(ctx.memories.begin(), it));
+                    rgs::distance(ctx.memories.begin(), it));
                 toks.pop_back();
             } break;
             case Name_Availabilty::Exists_Dispatch_Group_Name:
@@ -2597,17 +2609,15 @@ namespace x86_64 {
 } // namespace codegen
 
 static bool
-compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
+compile(Target tgt, fs::path input_path, const Da_Thing& ctx)
 {
-    using Fs_Path = std::filesystem::path;
-
     const Scoped_Stopwatch stopwatch { "compilation" };
 
     static constexpr std::string_view build_dir = ".build";
 
     const auto base_path = input_path.stem();
-    const Fs_Path dotbuild { input_path.parent_path() / build_dir };
-    std::filesystem::create_directory(dotbuild);
+    const fs::path dotbuild { input_path.parent_path() / build_dir };
+    fs::create_directory(dotbuild);
 
     switch (tgt) {
     case Target::x86_64_Gas: {
@@ -2615,8 +2625,8 @@ compile(Target tgt, std::filesystem::path input_path, const Da_Thing& ctx)
         if (!out.has_value())
             return false;
 
-        const Fs_Path asm_path { dotbuild / (base_path.string() + ".S") };
-        const Fs_Path obj_path { dotbuild / (base_path.string() + ".o") };
+        const fs::path asm_path { dotbuild / (base_path.string() + ".S") };
+        const fs::path obj_path { dotbuild / (base_path.string() + ".o") };
         std::ofstream file { asm_path };
         check_fstream_error(file, asm_path.string());
         file << out.value();
@@ -3143,7 +3153,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.pop_back();
             blocks.push_back(std::make_pair(stack, op.kind));
 
-            const auto original_stack = std::ranges::find_last_if(
+            const auto original_stack = rgs::find_last_if(
                 blocks,
                 [](const std::pair<Typestack, Op::Kind> p) -> bool {
                     return p.second == Op::Kind::If;
@@ -3240,7 +3250,7 @@ int main(int argc, char** argv)
     Da_Thing ctx;
 
     std::vector<std::string> arg_stack { argv, argv + argc };
-    std::ranges::reverse(arg_stack);
+    rgs::reverse(arg_stack);
 
     std::vector<std::string> positionals;
     while (!arg_stack.empty()) {
@@ -3279,7 +3289,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::filesystem::path file_path { positionals.back() };
+    fs::path file_path { positionals.back() };
     file_path = file_path.lexically_normal();
 
     included_paths.insert(file_path);
