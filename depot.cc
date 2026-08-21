@@ -302,47 +302,69 @@ struct Token {
         Include,
 
         Memory,
+
+        Dispatch,
     } kind;
     std::string text;
     As as;
 };
 
 static const std::unordered_map<std::string_view, Token::Kind> keywords = {
-    { "proc", Token::Kind::Proc },       { "link", Token::Kind::Link },
-    { "{", Token::Kind::Open_Curly },    { "}", Token::Kind::Close_Curly },
+    { "proc", Token::Kind::Proc },
+    { "link", Token::Kind::Link },
+    { "{", Token::Kind::Open_Curly },
+    { "}", Token::Kind::Close_Curly },
 
-    { "drop", Token::Kind::Drop },       { "dup", Token::Kind::Dup },
-    { "swap", Token::Kind::Swap },       { "rot", Token::Kind::Rot },
+    { "drop", Token::Kind::Drop },
+    { "dup", Token::Kind::Dup },
+    { "swap", Token::Kind::Swap },
+    { "rot", Token::Kind::Rot },
     { "over", Token::Kind::Over },
 
-    { "+", Token::Kind::Plus },          { "-", Token::Kind::Minus },
-    { "*", Token::Kind::Mult },          { "/", Token::Kind::Div },
+    { "+", Token::Kind::Plus },
+    { "-", Token::Kind::Minus },
+    { "*", Token::Kind::Mult },
+    { "/", Token::Kind::Div },
     { "mod", Token::Kind::Mod },
 
-    { "extern", Token::Kind::Extern },   { ";", Token::Kind::Semicolon },
+    { "extern", Token::Kind::Extern },
+    { ";", Token::Kind::Semicolon },
     { "--", Token::Kind::Sig_Delimit },
 
-    { "if", Token::Kind::If },           { "else", Token::Kind::Else },
-    { "elif", Token::Kind::Elif },       { "then", Token::Kind::Then },
+    { "if", Token::Kind::If },
+    { "else", Token::Kind::Else },
+    { "elif", Token::Kind::Elif },
+    { "then", Token::Kind::Then },
     { "while", Token::Kind::While },
 
-    { "=", Token::Kind::Equal },         { "!=", Token::Kind::Not_Equal },
-    { "<", Token::Kind::Less_Than },     { "<=", Token::Kind::Less_Equal },
-    { ">", Token::Kind::Greater_Than },  { ">=", Token::Kind::Greater_Equal },
+    { "=", Token::Kind::Equal },
+    { "!=", Token::Kind::Not_Equal },
+    { "<", Token::Kind::Less_Than },
+    { "<=", Token::Kind::Less_Equal },
+    { ">", Token::Kind::Greater_Than },
+    { ">=", Token::Kind::Greater_Equal },
 
-    { "@64", Token::Kind::Load64 },      { "@32", Token::Kind::Load32 },
-    { "@16", Token::Kind::Load16 },      { "@8", Token::Kind::Load8 },
-    { "!64", Token::Kind::Store64 },     { "!32", Token::Kind::Store32 },
-    { "!16", Token::Kind::Store16 },     { "!8", Token::Kind::Store8 },
+    { "@64", Token::Kind::Load64 },
+    { "@32", Token::Kind::Load32 },
+    { "@16", Token::Kind::Load16 },
+    { "@8", Token::Kind::Load8 },
+    { "!64", Token::Kind::Store64 },
+    { "!32", Token::Kind::Store32 },
+    { "!16", Token::Kind::Store16 },
+    { "!8", Token::Kind::Store8 },
 
-    { ">int64", Token::Kind::To_Int64 }, { ">ptr", Token::Kind::To_Ptr },
+    { ">int64", Token::Kind::To_Int64 },
+    { ">ptr", Token::Kind::To_Ptr },
     { ">bool", Token::Kind::To_Bool },
 
-    { "true", Token::Kind::True },       { "false", Token::Kind::False },
+    { "true", Token::Kind::True },
+    { "false", Token::Kind::False },
 
     { "include", Token::Kind::Include },
 
     { "memory", Token::Kind::Memory },
+
+    { "dispatch", Token::Kind::Dispatch },
 };
 
 static constexpr std::string_view human(Token::Kind kind, bool plural = false)
@@ -441,6 +463,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "`include` keywords" : "`include` keyword";
     case Token::Kind::Memory:
         return plural ? "`memory` keywords" : "`memory` keyword";
+    case Token::Kind::Dispatch:
+        return plural ? "`dispatch` keywords" : "`dispatch` keyword";
     default:
         std::unreachable();
     }
@@ -722,6 +746,7 @@ struct Op {
         Proc_Return, // operand(str): procedure name
         Proc_Call, // operand(str): procedure name
         Extern_Call, // operand(str): procedure name
+        Dispatch, // operand(str): dispatch group name
         Push_Int, // operand(int64): number
         Push_Str, // operand(int64): index inside of `Da_Thing::strings`
         Push_Global_Memory, // operand(int64): index inside of
@@ -782,6 +807,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Proc_Call";
     case Op::Kind::Extern_Call:
         return "Extern_Call";
+    case Op::Kind::Dispatch:
+        return "Dispatch";
     case Op::Kind::Push_Int:
         return "Push_Int";
     case Op::Kind::Push_Str:
@@ -937,6 +964,7 @@ struct Da_Thing {
     std::unordered_map<std::string, Proc> procs;
     std::unordered_map<std::string, Extern_Proc> extern_procs;
     std::vector<std::filesystem::path> extra_include_paths;
+    std::unordered_multimap<std::string, std::string> dispatch_groups;
 };
 
 constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
@@ -970,6 +998,7 @@ struct Parser {
         Exists_Extern_Proc,
         Exists_Builtin_Type,
         Exists_Memory,
+        Exists_Dispatch_Group_Name,
     };
 
     Name_Availabilty is_name_available(const std::string& name)
@@ -982,6 +1011,8 @@ struct Parser {
             return Name_Availabilty::Exists_Builtin_Type;
         if (find_memory_def(ctx, name) != ctx.memories.end())
             return Name_Availabilty::Exists_Memory;
+        if (ctx.dispatch_groups.contains(name))
+            return Name_Availabilty::Exists_Dispatch_Group_Name;
 
         return Name_Availabilty::Available;
     }
@@ -1117,7 +1148,7 @@ struct Parser {
         return std::make_optional(result);
     }
 
-    bool parse_proc(std::vector<Op>& ops)
+    std::optional<std::string> parse_proc(std::vector<Op>& ops)
     {
         const auto self = toks.back();
         toks.pop_back();
@@ -1125,77 +1156,81 @@ struct Parser {
         const auto proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name) {
             note(self.loc, "for this procedure definition");
-            return false;
+            return std::nullopt;
         }
+
+        const auto& proc_str = proc_name->text;
 
         const auto sig = parse_type_sig(self);
         if (!sig) {
             note(self.loc, "for this procedure definition");
-            return false;
+            return std::nullopt;
         }
 
         const auto open_curly = expect(self, Token::Kind::Open_Curly);
         if (!open_curly) {
             note(self.loc, "for this procedure definition");
-            return false;
+            return std::nullopt;
         }
 
-        switch (is_name_available(proc_name->text)) {
+        switch (is_name_available(proc_str)) {
         case Name_Availabilty::Exists_Proc:
-            error(self.loc,
-                  "redefinition of procedure \"{}\"",
-                  proc_name->text);
-            note(ctx.procs.at(proc_name->text).tok.loc,
-                 "previously defined here");
-            return false;
+            error(self.loc, "redefinition of procedure \"{}\"", proc_str);
+            note(ctx.procs.at(proc_str).tok.loc, "previously defined here");
+            return std::nullopt;
         case Name_Availabilty::Exists_Extern_Proc:
             error(self.loc,
                   "procedure name shadows external procedure \"{}\"",
-                  proc_name->text);
-            note(ctx.extern_procs.at(proc_name->text).tok.loc,
+                  proc_str);
+            note(ctx.extern_procs.at(proc_str).tok.loc,
                  "previously defined here");
-            return false;
+            return std::nullopt;
         case Name_Availabilty::Exists_Builtin_Type:
             error(self.loc,
                   "procedure name shadows builtin type \"{}\"",
-                  proc_name->text);
-            return false;
+                  proc_str);
+            return std::nullopt;
         case Name_Availabilty::Exists_Memory:
             error(self.loc,
                   "procedure name shadows memory definition \"{}\"",
-                  proc_name->text);
-            return false;
+                  proc_str);
+            return std::nullopt;
+        case Name_Availabilty::Exists_Dispatch_Group_Name:
+            error(self.loc,
+                  "procedure name shadows dispatch group \"{}\"",
+                  proc_str);
+            return std::nullopt;
         case Name_Availabilty::Available:
             break;
         default:
             std::unreachable();
         }
 
-        current_proc_name = proc_name->text;
-        ctx.procs.emplace(proc_name->text,
-                          Proc { self,
-                                 proc_name->text,
-                                 static_cast<s64>(ops.size()),
-                                 sig.value() });
-        ops.emplace_back(self, Op::Kind::Proc_Start, proc_name->text);
+        current_proc_name = proc_str;
+        ctx.procs.emplace(
+            proc_str,
+            Proc { self, proc_str, static_cast<s64>(ops.size()), sig.value() });
+        ops.emplace_back(self, Op::Kind::Proc_Start, proc_str);
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             if (!parse_token(ops, toks.back())) {
                 note(self.loc, "inside of this procedure body");
-                return false;
+                return std::nullopt;
             }
         }
-        if (!expect(self, Token::Kind::Close_Curly)) {
+
+        const auto close_curly = expect(self, Token::Kind::Close_Curly);
+        if (!close_curly.has_value()) {
             error(self.loc, "unclosed procedure block");
             note(open_curly->loc, "opened here");
-            return false;
+            return std::nullopt;
         }
 
-        ops.emplace_back(self, Op::Kind::Proc_Return, proc_name->text);
+        ops.emplace_back(close_curly.value(), Op::Kind::Proc_Return, proc_str);
 
         current_proc_name = "";
 
-        return true;
+        return std::make_optional(proc_str);
     }
 
     bool parse_link()
@@ -1352,7 +1387,8 @@ struct Parser {
     {
         const auto self = toks.back();
         toks.pop_back();
-        const auto proc_or_external_name = expect(self, { Token::Kind::Proc, Token::Kind::String }, false);
+        const auto proc_or_external_name
+            = expect(self, { Token::Kind::Proc, Token::Kind::String }, false);
         if (!proc_or_external_name.has_value()) {
             note(self.loc, "for this `extern` construction");
             return false;
@@ -1412,6 +1448,11 @@ struct Parser {
         case Name_Availabilty::Exists_Memory:
             error(self.loc,
                   "external procedure name shadows memory definition \"{}\"",
+                  proc_name->text);
+            return false;
+        case Name_Availabilty::Exists_Dispatch_Group_Name:
+            error(self.loc,
+                  "external procedure name shadows dispatch group \"{}\"",
                   proc_name->text);
             return false;
         case Name_Availabilty::Available:
@@ -1573,6 +1614,33 @@ struct Parser {
         return true;
     }
 
+    bool parse_dispatch(std::vector<Op>& ops)
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto name = expect(self, Token::Kind::Ident);
+        if (!name.has_value()) {
+            note(self.loc, "for this `dispatch` construction");
+            return false;
+        }
+
+        if (!expect(self, Token::Kind::Proc, false)) {
+            note(self.loc, "for this `dispatch` construction");
+            return false;
+        }
+
+        const auto proc = parse_proc(ops);
+        if (!proc.has_value()) {
+            note(self.loc, "in the procedure of this dispatch construction");
+            return false;
+        }
+
+        ctx.dispatch_groups.emplace(name->text, proc.value());
+
+        return true;
+    }
+
     bool parse_token(std::vector<Op>& ops, const Token& t)
     {
         switch (t.kind) {
@@ -1652,6 +1720,19 @@ struct Parser {
                     std::ranges::distance(ctx.memories.begin(), it));
                 toks.pop_back();
             } break;
+            case Name_Availabilty::Exists_Dispatch_Group_Name:
+                if (current_proc_name.empty()) {
+                    error(
+                        t.loc,
+                        "calling dispatched procedures only allowed inside of "
+                        "procedure bodies");
+                    toks.pop_back();
+                    return false;
+                }
+
+                ops.emplace_back(t, Op::Kind::Dispatch, t.text);
+                toks.pop_back();
+                break;
             case Name_Availabilty::Exists_Builtin_Type:
             case Name_Availabilty::Available:
                 error(t.loc, "unexpected identifier `{}`", t.text);
@@ -2065,13 +2146,25 @@ struct Parser {
         case Token::Kind::Memory:
             if (!current_proc_name.empty()) {
                 error(t.loc,
-                      "`include` directive allowed only in global scope, for "
+                      "`memory` directive allowed only in global scope, for "
                       "now");
                 toks.pop_back();
                 return false;
             }
 
             if (!parse_memory())
+                return false;
+            break;
+        case Token::Kind::Dispatch:
+            if (!current_proc_name.empty()) {
+                error(t.loc,
+                      "`dispatch` directive is only allowed in global scope",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+
+            if (!parse_dispatch(ops))
                 return false;
             break;
         case Token::Kind::Elif:
@@ -2415,6 +2508,11 @@ namespace x86_64 {
                 out << "\tsetne %al\n";
                 out << "\tpushq %rax\n";
                 break;
+            case Op::Kind::Dispatch:
+                ASSERT(op.kind == Op::Kind::Dispatch,
+                       "Compiler Bug: Dispatch was not resolved in "
+                       "typecheker/sema");
+                break;
             case Op::Kind::While:
             case Op::Kind::Then:
             case Op::Kind::To_Int64:
@@ -2528,6 +2626,15 @@ bool ensure_stack_size(const Op& self,
                        usz expect,
                        bool strict = false)
 {
+    if (have == 0 && expect > 0) {
+        if constexpr (enable_logging)
+            std::println(
+                "{}: error: expeted {} values on the stack, but got nothing",
+                self.tok.loc,
+                expect);
+        return false;
+    }
+
     if (!strict) {
         if (have < expect) {
             if constexpr (enable_logging)
@@ -2543,12 +2650,12 @@ bool ensure_stack_size(const Op& self,
     } else {
         if (have != expect) {
             if constexpr (enable_logging)
-                std::println(
-                    stderr,
-                    "{}: error: expected {} values on the stack, but got {}",
-                    self.tok.loc,
-                    expect,
-                    have);
+                std::println(stderr,
+                             "{}: error: expected {} values on the stack, but "
+                             "got {}",
+                             self.tok.loc,
+                             expect,
+                             have);
 
             return false;
         }
@@ -2613,7 +2720,15 @@ constexpr auto typestack_to_string(std::span<const Type> s)
         " ");
 }
 
-bool typecheck(const Da_Thing& ctx)
+constexpr auto proc_to_string(const Proc& proc)
+{
+    return std::format("proc {} {:s} -- {:s}",
+                       proc.name,
+                       typestack_to_string(proc.sig.input_types),
+                       typestack_to_string(proc.sig.return_types));
+}
+
+bool typecheck_and_sema(Da_Thing& ctx)
 {
     using Typestack = std::vector<Type>;
 
@@ -2626,7 +2741,7 @@ bool typecheck(const Da_Thing& ctx)
     Typestack stack;
     std::vector<std::pair<Typestack, Op::Kind>> blocks;
 
-    for (const auto& op : ctx.ops) {
+    for (auto& op : ctx.ops) {
         switch (op.kind) {
         case Op::Kind::Proc_Start:
             ASSERT(stack.size() == 0, "Compiler Bug");
@@ -2983,6 +3098,67 @@ bool typecheck(const Da_Thing& ctx)
 
             stack = original_stack.back().first;
         } break;
+        case Op::Kind::Dispatch: {
+            std::vector<Proc> matches;
+            const auto name = std::get<std::string>(op.as);
+            ASSERT(ctx.dispatch_groups.contains(name),
+                   "Compiler Bug: Dispatch in typecheck, but the name wasn't "
+                   "registered by parser");
+            const auto dispatch_procs = ctx.dispatch_groups.equal_range(name);
+            for (auto it = dispatch_procs.first; it != dispatch_procs.second;
+                 ++it) {
+                const auto proc = ctx.procs.at(it->second);
+                if (ensure_stack<false>(op, stack, proc.sig.input_types))
+                    matches.push_back(proc);
+            }
+
+            if (matches.empty()) {
+                std::println(stderr,
+                             "{}: error: no matching candidate for '{}'",
+                             op.tok.loc,
+                             name);
+                for (auto it = dispatch_procs.first;
+                     it != dispatch_procs.second;
+                     ++it) {
+                    const auto proc = ctx.procs.at(it->second);
+                    std::println("{}: note: candidate: `{}`",
+                                 proc.tok.loc,
+                                 proc_to_string(proc));
+                }
+
+                return false;
+            }
+
+            if (matches.size() > 1) {
+                std::println(stderr,
+                             "{}: error: ambiguous call to '{}'",
+                             op.tok.loc,
+                             name);
+                for (const auto& proc : matches) {
+                    std::println("{}: note: matched candidate: `{}`",
+                                 proc.tok.loc,
+                                 proc_to_string(proc));
+                }
+
+                return false;
+            }
+
+            const auto& proc = matches.back();
+
+            // NOTE: copypasting
+            if (!ensure_stack(op, stack, proc.sig.input_types)) {
+                std::println("{}: note: for this dispatched procedure",
+                             proc.tok.loc);
+                return false;
+            }
+
+            for (usz i = 0; i < proc.sig.input_types.size(); ++i)
+                stack.pop_back();
+
+            stack.append_range(proc.sig.return_types);
+            op.kind = Op::Kind::Proc_Call;
+            op.as = proc.name;
+        } break;
         case Op::Kind::While:
             break;
         }
@@ -3109,7 +3285,7 @@ int main(int argc, char** argv)
         return 5;
     }
 
-    if (!typecheck(ctx))
+    if (!typecheck_and_sema(ctx))
         return 5;
 
     if (!compile(Target::x86_64_Gas, file_path, ctx))

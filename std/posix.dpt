@@ -1,3 +1,4 @@
 link "c"
 
 extern proc write int64 ptr int64 -- int64 ;
+proc posix/print int64 ptr -- { 1 rot write drop }

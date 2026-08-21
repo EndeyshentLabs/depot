@@ -1,0 +1,23 @@
+include "../std/mem.dpt"
+include "../std/posix.dpt"
+
+dispatch process proc process-int64 int64 -- {
+    drop "We are processing an int64!\n" posix/print
+}
+
+dispatch process proc process-bool bool -- {
+    drop "We are processing a bool!\n" posix/print
+}
+
+dispatch process proc process-str int64 ptr -- int64 {
+    "We are processing a string '" posix/print
+    posix/print
+    "'! Beware, we're also returning the nice value\n" posix/print
+    69
+}
+
+proc main -- int64 {
+    1337 process
+    true process
+    "Hello" process
+}

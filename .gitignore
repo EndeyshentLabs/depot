@@ -7,3 +7,5 @@ a.out
 *.lib
 *.dll
 .build/
+/tags
+/TAGS
