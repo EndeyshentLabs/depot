@@ -304,6 +304,8 @@ struct Token {
         Store16,
         Store8,
 
+        Print_Stack,
+
         To_Int64,
         To_Ptr,
         To_Bool,
@@ -364,6 +366,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "!32", Token::Kind::Store32 },
     { "!16", Token::Kind::Store16 },
     { "!8", Token::Kind::Store8 },
+
+    { "???", Token::Kind::Print_Stack },
 
     { ">int64", Token::Kind::To_Int64 },
     { ">ptr", Token::Kind::To_Ptr },
@@ -460,6 +464,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return "`!16`";
     case Token::Kind::Store8:
         return "`!8`";
+    case Token::Kind::Print_Stack:
+        return plural ? "`???` keywords" : "`???` keyword";
     case Token::Kind::To_Int64:
         return plural ? "casts to an int64" : "cast to an int64";
     case Token::Kind::To_Ptr:
@@ -800,6 +806,8 @@ struct Op {
         Store16, // no operand (0 as int64)
         Store8, // no operand (0 as int64)
 
+        Print_Typestack_Then_Halt, // no operand (0 as int64)
+
         To_Int64, // no operand (0 as int64)
         To_Ptr, // no operand (0 as int64)
         To_Bool, // no operand (0 as int64)
@@ -889,6 +897,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Store16";
     case Op::Kind::Store8:
         return "Store8";
+    case Op::Kind::Print_Typestack_Then_Halt:
+        return "Print_Typestack_Then_Halt";
     case Op::Kind::To_Int64:
         return "To_Int64";
     case Op::Kind::To_Ptr:
@@ -2121,6 +2131,18 @@ struct Parser {
             ctx.ops.emplace_back(t, Op::Kind::Store8);
             toks.pop_back();
             break;
+        case Token::Kind::Print_Stack:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ctx.ops.emplace_back(t, Op::Kind::Print_Typestack_Then_Halt);
+            toks.pop_back();
+            break;
         case Token::Kind::To_Int64:
             if (current_proc_name.empty()) {
                 error(t.loc,
@@ -2552,6 +2574,12 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tmovb %cl, (%rax)\n";
                 break;
+            case Op::Kind::Print_Typestack_Then_Halt:
+                ASSERT(
+                    op.kind == Op::Kind::Print_Typestack_Then_Halt,
+                    "Compiler Bug: Print_Typestack_Then_Halt was not handled "
+                    "in typecheker/sema and leaked into the codegen");
+                break;
             case Op::Kind::To_Bool:
                 out << "\tpopq %rax\n";
                 out << "\tcqo\n";
@@ -2977,6 +3005,12 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.pop_back();
             stack.pop_back();
             break;
+        case Op::Kind::Print_Typestack_Then_Halt:
+            std::println("{}: current typestack: {:s}",
+                         op.tok.loc,
+                         typestack_to_string(stack));
+            std::println("{}: note: stopping", op.tok.loc);
+            return false;
         case Op::Kind::To_Int64:
             if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
