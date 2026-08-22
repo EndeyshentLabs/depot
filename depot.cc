@@ -949,11 +949,11 @@ struct Type_Sig {
 
 constexpr auto typestack_to_string(std::span<const Type> s)
 {
-    return vws::join_with(
-        vws::transform(
-            s,
-            [](const Type& t) -> std::string_view { return t.name; }),
-        " ");
+    return vws::join_with(vws::transform(s,
+                                         [](const Type& t) -> std::string_view {
+                                             return t.name;
+                                         }),
+                          " ");
 }
 
 template <>
@@ -1023,9 +1023,9 @@ struct Da_Thing {
 
 constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
 {
-    return rgs::find_if(
-        ctx.memories,
-        [&name](const Memory& mem) -> bool { return mem.name == name; });
+    return rgs::find_if(ctx.memories, [&name](const Memory& mem) -> bool {
+        return mem.name == name;
+    });
 }
 
 static std::set<fs::path> included_paths { };
@@ -1036,9 +1036,7 @@ struct Parser {
     fs::path current_file { };
     std::string_view current_proc_name { };
 
-    Parser(std::span<Token> toks,
-           Da_Thing& ctx,
-           const fs::path& file_path)
+    Parser(std::span<Token> toks, Da_Thing& ctx, const fs::path& file_path)
         : toks { toks.size() }
         , ctx { ctx }
         , current_file { file_path }
@@ -1116,11 +1114,11 @@ struct Parser {
                                 bool consume = true)
     {
         const auto kind_strings
-            = kinds
-            | vws::transform(
-                  [](Token::Kind k) -> std::string_view { return human(k); });
-        const auto ored_kinds = rgs::to<std::string>(
-            vws::join_with(kind_strings, " or "));
+            = kinds | vws::transform([](Token::Kind k) -> std::string_view {
+                  return human(k);
+              });
+        const auto ored_kinds
+            = rgs::to<std::string>(vws::join_with(kind_strings, " or "));
 
         if (toks.size() <= 0) {
             error(self.loc, "expected {:s}, but got nothing", ored_kinds);
@@ -1557,10 +1555,9 @@ struct Parser {
             = fs::path(std::get<std::string>(path.value().as))
                   .lexically_normal();
 
-        const auto current_dir
-            = (fs::current_path() / current_file)
-                  .lexically_normal()
-                  .remove_filename();
+        const auto current_dir = (fs::current_path() / current_file)
+                                     .lexically_normal()
+                                     .remove_filename();
 
         std::vector<fs::path> roots = {
             // relative to input file
@@ -1579,13 +1576,11 @@ struct Parser {
             "/usr/local/lib/depot",
         };
         roots.append_range(
-            ctx.extra_include_paths
-            | vws::transform([](const fs::path& path) {
-                  return path.is_relative()
-                           ? (fs::current_path() / path)
-                                 .lexically_normal()
-                           : path.lexically_normal();
-              }));
+            ctx.extra_include_paths | vws::transform([](const fs::path& path) {
+                return path.is_relative()
+                         ? (fs::current_path() / path).lexically_normal()
+                         : path.lexically_normal();
+            }));
         std::optional<fs::path> found = std::nullopt;
 
         if (fs::exists(include_path))
@@ -1771,10 +1766,9 @@ struct Parser {
 
                 const auto it = find_memory_def(ctx, t.text);
                 ASSERT(it != ctx.memories.end(), "Compiler Bug");
-                ctx.ops.emplace_back(
-                    t,
-                    Op::Kind::Push_Global_Memory,
-                    rgs::distance(ctx.memories.begin(), it));
+                ctx.ops.emplace_back(t,
+                                     Op::Kind::Push_Global_Memory,
+                                     rgs::distance(ctx.memories.begin(), it));
                 toks.pop_back();
             } break;
             case Name_Availabilty::Exists_Dispatch_Group_Name:
@@ -2608,8 +2602,7 @@ namespace x86_64 {
 
 } // namespace codegen
 
-static bool
-compile(Target tgt, fs::path input_path, const Da_Thing& ctx)
+static bool compile(Target tgt, fs::path input_path, const Da_Thing& ctx)
 {
     const Scoped_Stopwatch stopwatch { "compilation" };
 
