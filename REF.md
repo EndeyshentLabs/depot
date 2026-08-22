@@ -88,7 +88,7 @@ include "<file_path>"
 - `memory` -- static global memory allocation definition
 
 ```depot
-memory <name> <size:int64>
+memory <name> <constant-expression:int64> ;
 ```
 
 - `while` -- while loop block
