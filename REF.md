@@ -212,3 +212,8 @@ Signature: `x:any_type -- x:bool`
 - `>ptr` -- convert top element to a `ptr`
 
 Signature: `x:any_type -- x:ptr`
+
+- `???` -- print typestack and halt the compiler
+
+Processed during typechecking. Prints current typestack and fails the
+typechecking to halt the compiler.
