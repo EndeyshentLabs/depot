@@ -1643,6 +1643,308 @@ struct Parser {
         return true;
     }
 
+    std::optional<s64> parse_constexpr(const Token& self)
+    {
+        std::vector<s64> value_stack;
+
+        while (!toks.empty() && toks.back().kind != Token::Kind::Semicolon) {
+            const auto t = toks.back();
+            toks.pop_back();
+
+            switch (t.kind) {
+            case Token::Kind::Number:
+                value_stack.push_back(std::get<s64>(t.as));
+                break;
+            case Token::Kind::Drop:
+                if (value_stack.empty()) {
+                    error(t.loc,
+                          "not enough elements on the stack for `drop`: "
+                          "expected at least 1");
+                    return std::nullopt;
+                }
+                value_stack.pop_back();
+                break;
+            case Token::Kind::Dup:
+                if (value_stack.empty()) {
+                    error(t.loc,
+                          "not enough elements on the stack for `dup`: "
+                          "expected at least 1");
+                    return std::nullopt;
+                }
+                value_stack.push_back(value_stack.back());
+                break;
+            case Token::Kind::Swap: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `swap`: "
+                          "expected at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(top);
+                value_stack.push_back(below);
+            } break;
+            case Token::Kind::Rot: {
+                if (value_stack.size() < 3) {
+                    error(t.loc,
+                          "not enough elements on the stack for `rot`: "
+                          "expected at least 3");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+                const s64 under = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(top);
+                value_stack.push_back(below);
+                value_stack.push_back(under);
+            } break;
+            case Token::Kind::Over: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `over`: "
+                          "expected at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below);
+                value_stack.push_back(top);
+                value_stack.push_back(below);
+            } break;
+            case Token::Kind::Plus: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `+`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below + top);
+            } break;
+            case Token::Kind::Minus: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `-`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below - top);
+            } break;
+            case Token::Kind::Mult: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `*`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below * top);
+            } break;
+            case Token::Kind::Div: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `/`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below / top);
+            } break;
+            case Token::Kind::Mod: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `/`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below % top);
+            } break;
+            case Token::Kind::Equal: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `=`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below == top));
+            } break;
+            case Token::Kind::Not_Equal: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `!=`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below != top));
+            } break;
+            case Token::Kind::Less_Than: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `<`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below < top));
+            } break;
+            case Token::Kind::Less_Equal: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `<=`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below <= top));
+            } break;
+            case Token::Kind::Greater_Than: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `>`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below > top));
+            } break;
+            case Token::Kind::Greater_Equal: {
+                if (value_stack.size() < 2) {
+                    error(t.loc,
+                          "not enough elements on the stack for `>=`: expected "
+                          "at least 2");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(static_cast<s64>(below >= top));
+            } break;
+            case Token::Kind::True:
+                value_stack.push_back(1);
+                break;
+            case Token::Kind::False:
+                value_stack.push_back(0);
+                break;
+            case Token::Kind::Ident:
+                todo("constant expression evaluation for Token::Kind::Ident is "
+                     "not implemented");
+                break;
+            case Token::Kind::Print_Stack:
+                note(t.loc, "current stack: {}", value_stack);
+                note(t.loc, "stopping constant expression evaluation");
+                return std::nullopt;
+            case Token::Kind::Open_Curly:
+            case Token::Kind::Close_Curly:
+            case Token::Kind::String:
+            case Token::Kind::If:
+            case Token::Kind::Else:
+            case Token::Kind::Elif:
+            case Token::Kind::Then:
+            case Token::Kind::While:
+            case Token::Kind::Extern:
+            case Token::Kind::Sig_Delimit:
+            case Token::Kind::Load64:
+            case Token::Kind::Load32:
+            case Token::Kind::Load16:
+            case Token::Kind::Load8:
+            case Token::Kind::Store64:
+            case Token::Kind::Store32:
+            case Token::Kind::Store16:
+            case Token::Kind::Store8:
+            case Token::Kind::To_Int64:
+            case Token::Kind::To_Ptr:
+            case Token::Kind::To_Bool:
+            case Token::Kind::Include:
+            case Token::Kind::Memory:
+            case Token::Kind::Dispatch:
+            case Token::Kind::Proc:
+            case Token::Kind::Link:
+            case Token::Kind::Semicolon:
+                error(t.loc,
+                      "{} is not allowed inside of constant expressions",
+                      human(t.kind));
+                return std::nullopt;
+                break;
+            }
+        }
+
+        if (!expect(self, Token::Kind::Semicolon, false)) {
+            error(self.loc, "unclosed constant expression");
+            return std::nullopt;
+        }
+
+        if (value_stack.empty()) {
+            error(self.loc, "constant expressions cannot evaluate to nothing");
+            return std::nullopt;
+        }
+
+        if (value_stack.size() > 1) {
+            error(
+                self.loc,
+                "too many values at the end of constant expression evaluation");
+            return std::nullopt;
+        }
+
+        return value_stack.back();
+    }
+
     bool parse_memory()
     {
         const auto self = toks.back();
@@ -1654,24 +1956,21 @@ struct Parser {
             return false;
         }
 
-        const auto size
-            = expect(self, Token::Kind::Number); // TODO: constant expressions
+        const auto size = parse_constexpr(self);
         if (!size.has_value()) {
             note(self.loc, "for this `memory` construction");
             return false;
         }
 
-        const auto sz = std::get<s64>(size->as);
-        if (sz <= 0) {
-            error(size->loc, "size should be at least 1 byte, but got {}", sz);
-            note(self.loc, "for this `memory` construction");
+        if (!expect(self, Token::Kind::Semicolon)) {
+            error(self.loc, "unclosed `memory` construction");
             return false;
         }
 
         ctx.memories.emplace_back(Memory { self,
                                            name->text,
                                            ctx.memories.size(),
-                                           static_cast<u64>(sz) });
+                                           static_cast<u64>(size.value()) });
 
         return true;
     }
