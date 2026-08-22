@@ -14,7 +14,7 @@ syn match   depotOperator #\<[<>]=\?\>#
 syn match   depotOperator #\<!=>#
 syn match   depotOperator #\<--\>#
 syn match   depotOperator #\<[@!]\(\(64\)\|\(32\)\|\(16\)\|\(8\)\)\>#
-syn keyword depotOperator drop dup swap rot over mod >int64 >ptr >bool
+syn keyword depotOperator drop dup swap rot over mod >int64 >ptr >bool ???
 
 syn keyword depotConditional if elif else then
 syn keyword depotRepeat      while
