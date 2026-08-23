@@ -1,4 +1,4 @@
-include "../std/defs.dpt"
+include "./defs.dpt"
 
 link "c"
 

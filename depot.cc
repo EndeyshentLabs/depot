@@ -89,6 +89,12 @@ using namespace std::ranges::views;
 }
 
 #define TODO() todo(__PRETTY_FUNCTION__)
+
+constexpr fs::path fspath_to_absolute(const fs::path& path)
+{
+    return (path.is_relative() ? (fs::current_path() / path) : path)
+        .lexically_normal();
+}
 // }}}
 
 // EXECUTE COMMAND (execv style) {{{
@@ -1588,12 +1594,11 @@ struct Parser {
         }
 
         const auto include_path
-            = fs::path(std::get<std::string>(path.value().as))
+            = fs::path { std::get<std::string>(path.value().as) }
                   .lexically_normal();
 
-        const auto current_dir = (fs::current_path() / current_file)
-                                     .lexically_normal()
-                                     .remove_filename();
+        const auto current_dir
+            = fspath_to_absolute(current_file).remove_filename();
 
         std::vector<fs::path> roots = {
             // NOTE: platform specific paths
@@ -1606,24 +1611,19 @@ struct Parser {
             current_dir / "lib",
             current_dir / "include",
         };
-        roots.append_range(
-            ctx.extra_include_paths | vws::transform([](const fs::path& path) {
-                return path.is_relative()
-                         ? (fs::current_path() / path).lexically_normal()
-                         : path.lexically_normal();
-            }));
+        roots.append_range(ctx.extra_include_paths
+                           | vws::transform([](const fs::path& path) {
+                                 return fspath_to_absolute(path);
+                             }));
         std::optional<fs::path> found = std::nullopt;
 
-        if (fs::exists(include_path))
-            found = include_path;
-        else
-            for (const auto& root : roots) {
-                const auto path = root / include_path;
-                if (fs::exists(path)) {
-                    found = path.lexically_normal();
-                    break;
-                }
+        for (const auto& root : roots) {
+            const auto path = root / include_path;
+            if (fs::exists(path)) {
+                found = path.lexically_normal();
+                break;
             }
+        }
 
         if (!found) {
             error(self.loc,
@@ -1635,13 +1635,10 @@ struct Parser {
             return false;
         }
 
-        if (included_paths.contains(found.value())) {
-            error(self.loc,
-                  "multiple includes of the same file are not allowed");
-            return false;
-        }
-
-        included_paths.insert(found.value());
+        if (!included_paths.contains(found.value()))
+            included_paths.insert(found.value());
+        else
+            return true;
 
         Lexer l { found.value() };
         if (l.has_error) {
@@ -3692,12 +3689,12 @@ int main(int argc, char** argv)
 
     if (positionals.empty()) {
         usage(stderr, program_name);
-        std::println(stderr, "erorr: expected file path, but got nothing");
+        std::println(stderr, "error: expected file path, but got nothing");
         return 1;
     } else if (positionals.size() > 1) {
         usage(stderr, program_name);
         std::println(stderr,
-                     "erorr: too many positional arguments, expected only one, "
+                     "error: too many positional arguments, expected only one, "
                      "but got {}",
                      positionals.size());
         return 1;
@@ -3706,7 +3703,7 @@ int main(int argc, char** argv)
     fs::path file_path { positionals.back() };
     file_path = file_path.lexically_normal();
 
-    included_paths.insert(file_path);
+    included_paths.insert(fspath_to_absolute(file_path));
 
     Lexer l { file_path };
     if (l.has_error)
