@@ -2,7 +2,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn match   depotNumber  "\<\d\+"
+syn match   depotNumber  "\<-\?\d\+"
 syn match   depotNumber  "\<\d\+#[a-zA-Z0-9]\+"
 syn keyword depotBoolean true false
 

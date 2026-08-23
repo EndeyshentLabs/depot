@@ -1,18 +1,30 @@
-const sizeof(char) 1 ;
-const sizeof(bool) 1 ;
+const stdin  0 ;
+const stdout 1 ;
+const stderr 2 ;
 
-const sizeof(ptr) 8 ;
+const sizeof(char)   1 ;
+const sizeof(bool)   1 ;
 
-const sizeof(int64) 8 ;
-const sizeof(int32) 4 ;
-const sizeof(int16) 2 ;
-const sizeof(int8)  1 ;
+const sizeof(ptr)    8 ;
+
+const sizeof(int64)  8 ;
+const sizeof(int32)  4 ;
+const sizeof(int16)  2 ;
+const sizeof(int8)   1 ;
 
 const sizeof(uint64) 8 ;
 const sizeof(uint32) 4 ;
 const sizeof(uint16) 2 ;
 const sizeof(uint8)  1 ;
 
-const stdin  0 ;
-const stdout 1 ;
-const stderr 2 ;
+const INT64_MIN -9223372036854775808 ;
+const INT64_MAX  9223372036854775807 ;
+
+const INT32_MIN -2147483648 ;
+const INT32_MAX  2147483647 ;
+
+const INT16_MIN -32768 ;
+const INT16_MAX  32767 ;
+
+const INT8_MIN  -128 ;
+const INT8_MAX   127 ;
