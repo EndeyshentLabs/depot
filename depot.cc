@@ -1596,20 +1596,15 @@ struct Parser {
                                      .remove_filename();
 
         std::vector<fs::path> roots = {
-            // relative to input file
-            current_dir,
-            current_dir / "lib",
-            current_dir / "include",
-            // relative to current working directory
-            // NOTE: may cause problems in the future
-            fs::current_path(),
-            fs::current_path() / "lib",
-            fs::current_path() / "include",
             // NOTE: platform specific paths
             "/usr/include",
             "/usr/lib/depot",
             "/usr/local/include",
             "/usr/local/lib/depot",
+            // relative to input file
+            current_dir,
+            current_dir / "lib",
+            current_dir / "include",
         };
         roots.append_range(
             ctx.extra_include_paths | vws::transform([](const fs::path& path) {
@@ -1997,7 +1992,8 @@ struct Parser {
 
         const auto value = parse_constexpr(self);
         if (!value.has_value()) {
-            note(self.loc, "for this `const` construction"); return false;
+            note(self.loc, "for this `const` construction");
+            return false;
         }
 
         if (!expect(self, Token::Kind::Semicolon)) {
