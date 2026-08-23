@@ -315,6 +315,7 @@ struct Token {
 
         Include,
 
+        Const,
         Memory,
 
         Dispatch,
@@ -378,6 +379,7 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
 
     { "include", Token::Kind::Include },
 
+    { "const", Token::Kind::Const },
     { "memory", Token::Kind::Memory },
 
     { "dispatch", Token::Kind::Dispatch },
@@ -479,6 +481,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
                       : "`false` keyword-constant";
     case Token::Kind::Include:
         return plural ? "`include` keywords" : "`include` keyword";
+    case Token::Kind::Const:
+        return plural ? "`const` keywords" : "`const` keyword";
     case Token::Kind::Memory:
         return plural ? "`memory` keywords" : "`memory` keyword";
     case Token::Kind::Dispatch:
@@ -963,7 +967,7 @@ constexpr auto typestack_to_string(std::span<const Type> s)
                                          [](const Type& t) -> std::string_view {
                                              return t.name;
                                          }),
-                          " ");
+                          ' ');
 }
 
 template <>
@@ -1020,6 +1024,14 @@ struct Memory {
     u64 size;
 };
 
+struct Constant {
+    Token tok;
+    std::string name;
+    s64 value;
+
+    operator s64() const { return value; }
+};
+
 struct Da_Thing {
     std::vector<std::string> linker_libs;
     std::vector<Op> ops;
@@ -1029,6 +1041,7 @@ struct Da_Thing {
     std::unordered_map<std::string, Extern_Proc> extern_procs;
     std::vector<fs::path> extra_include_paths;
     std::unordered_multimap<std::string, std::string> dispatch_groups;
+    std::unordered_map<std::string, Constant> constants;
 };
 
 constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
@@ -1059,6 +1072,7 @@ struct Parser {
         Exists_Proc,
         Exists_Extern_Proc,
         Exists_Builtin_Type,
+        Exists_Constant,
         Exists_Memory,
         Exists_Dispatch_Group_Name,
     };
@@ -1071,6 +1085,8 @@ struct Parser {
             return Name_Availabilty::Exists_Extern_Proc;
         if (builtin_types.contains(name))
             return Name_Availabilty::Exists_Builtin_Type;
+        if (ctx.constants.contains(name))
+            return Name_Availabilty::Exists_Constant;
         if (find_memory_def(ctx, name) != ctx.memories.end())
             return Name_Availabilty::Exists_Memory;
         if (ctx.dispatch_groups.contains(name))
@@ -1250,6 +1266,11 @@ struct Parser {
         case Name_Availabilty::Exists_Builtin_Type:
             error(self.loc,
                   "procedure name shadows builtin type \"{}\"",
+                  proc_str);
+            return std::nullopt;
+        case Name_Availabilty::Exists_Constant:
+            error(self.loc,
+                  "procedure name shadows const definition \"{}\"",
                   proc_str);
             return std::nullopt;
         case Name_Availabilty::Exists_Memory:
@@ -1508,6 +1529,11 @@ struct Parser {
         case Name_Availabilty::Exists_Builtin_Type:
             error(self.loc,
                   "external procedure name shadows builtin type \"{}\"",
+                  proc_name->text);
+            return false;
+        case Name_Availabilty::Exists_Constant:
+            error(self.loc,
+                  "external procedure name shadows const definition \"{}\"",
                   proc_name->text);
             return false;
         case Name_Availabilty::Exists_Memory:
@@ -1883,8 +1909,20 @@ struct Parser {
                 value_stack.push_back(0);
                 break;
             case Token::Kind::Ident:
-                todo("constant expression evaluation for Token::Kind::Ident is "
-                     "not implemented");
+                switch (is_name_available(t.text)) {
+                case Name_Availabilty::Exists_Constant:
+                    ASSERT(ctx.constants.contains(t.text), "Compiler Bug");
+                    value_stack.push_back(ctx.constants.at(t.text));
+                    break;
+                case Name_Availabilty::Exists_Proc:
+                case Name_Availabilty::Exists_Extern_Proc:
+                case Name_Availabilty::Exists_Memory:
+                case Name_Availabilty::Exists_Dispatch_Group_Name:
+                case Name_Availabilty::Exists_Builtin_Type:
+                case Name_Availabilty::Available:
+                    error(t.loc, "unexpected identifier '{}'", t.text);
+                    return std::nullopt;
+                }
                 break;
             case Token::Kind::Print_Stack:
                 note(t.loc, "current stack: {}", value_stack);
@@ -1912,6 +1950,7 @@ struct Parser {
             case Token::Kind::To_Ptr:
             case Token::Kind::To_Bool:
             case Token::Kind::Include:
+            case Token::Kind::Const:
             case Token::Kind::Memory:
             case Token::Kind::Dispatch:
             case Token::Kind::Proc:
@@ -1943,6 +1982,33 @@ struct Parser {
         }
 
         return value_stack.back();
+    }
+
+    bool parse_const()
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto name = expect(self, Token::Kind::Ident);
+        if (!name.has_value()) {
+            note(self.loc, "for this `const` construction");
+            return false;
+        }
+
+        const auto value = parse_constexpr(self);
+        if (!value.has_value()) {
+            note(self.loc, "for this `const` construction"); return false;
+        }
+
+        if (!expect(self, Token::Kind::Semicolon)) {
+            error(self.loc, "unclosed `const` body");
+            return false;
+        }
+
+        ctx.constants.emplace(name->text,
+                              Constant { self, name->text, value.value() });
+
+        return true;
     }
 
     bool parse_memory()
@@ -2062,6 +2128,21 @@ struct Parser {
                 }
 
                 ctx.ops.emplace_back(t, Op::Kind::Extern_Call, t.text);
+                toks.pop_back();
+                break;
+            case Name_Availabilty::Exists_Constant:
+                if (current_proc_name.empty()) {
+                    error(t.loc,
+                          "pushing constants only "
+                          "allowed inside of procedure bodies");
+                    toks.pop_back();
+                    return false;
+                }
+
+                ASSERT(ctx.constants.contains(t.text), "Compiler Bug");
+                ctx.ops.emplace_back(t,
+                                     Op::Kind::Push_Int,
+                                     ctx.constants.at(t.text));
                 toks.pop_back();
                 break;
             case Name_Availabilty::Exists_Memory: {
@@ -2514,6 +2595,17 @@ struct Parser {
 
             if (!parse_include())
                 return false;
+            break;
+        case Token::Kind::Const:
+            if (!current_proc_name.empty()) {
+                error(t.loc, "`const` directive allowed only in global scope");
+                toks.pop_back();
+                return false;
+            }
+
+            if (!parse_const())
+                return false;
+
             break;
         case Token::Kind::Memory:
             if (!current_proc_name.empty()) {

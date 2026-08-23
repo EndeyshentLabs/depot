@@ -1,12 +1,12 @@
 include "../std/c.dpt"
 include "../std/posix.dpt"
 
-memory hello-buffer 14 // sizeof("Hello, World!\n") = 14
-proc io/print int64 ptr { 1 rot write drop }
+const buffer-size 14 ;
+memory hello-buffer buffer-size ;
 
 proc main -- int64 {
     hello-buffer "Hello, World!\n" swap memcpy drop
-    14 hello-buffer io/print
+    buffer-size hello-buffer posix/print
 
     hello-buffer @8 // exit code 72
 }

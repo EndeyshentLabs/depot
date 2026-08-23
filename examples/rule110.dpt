@@ -1,8 +1,11 @@
+include "../std/defs.dpt"
 include "../std/c.dpt"
 
-proc sizeof(tape) -- int64 { 40 }
-memory tape 40
-memory next-tape 40
+const ITERATION_COUNT 30 ;
+
+const sizeof(tape) 40 sizeof(bool) * ;
+memory tape sizeof(tape) ;
+memory next-tape sizeof(tape) ;
 
 proc lnot bool -- bool { >int64 0 = }
 proc lor bool bool -- bool { >int64 swap >int64 + >bool }
@@ -10,7 +13,7 @@ proc land bool bool -- bool { >int64 swap >int64 * >bool }
 
 proc min int64 int64 -- int64 { over over < if drop else swap drop then }
 
-memory ?alive/index 8
+memory ?alive/index sizeof(int64) ;
 proc ?alive int64 -- bool {
     ?alive/index !64
 
@@ -53,7 +56,7 @@ proc print-tape {
 proc main -- int64 {
     1 tape sizeof(tape) 1 - ptr+ !8
     print-tape
-    0 while dup 30 < {
+    0 while dup ITERATION_COUNT < {
         iteration
         print-tape
         1 +
