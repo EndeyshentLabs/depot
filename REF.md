@@ -85,6 +85,12 @@ If `[external-symbol-name]` is not present, then `<name>` is used instead.
 include "<file_path>"
 ```
 
+- `const` -- define a constant
+
+```depot
+const <name> <constant-expression:int64> ;
+```
+
 - `memory` -- static global memory allocation definition
 
 ```depot
