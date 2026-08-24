@@ -286,6 +286,9 @@ struct Token {
         Dup,
         Swap,
         Rot,
+        // Depot's `Cycle` is Forth's `ROT`
+        // 6.1.2160 "rote" https://forth-standard.org/standard/core/ROT
+        Cycle,
         Over,
         Plus,
         Minus,
@@ -340,6 +343,7 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
     { "dup", Token::Kind::Dup },
     { "swap", Token::Kind::Swap },
     { "rot", Token::Kind::Rot },
+    { "cycle", Token::Kind::Cycle },
     { "over", Token::Kind::Over },
 
     { "+", Token::Kind::Plus },
@@ -432,6 +436,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return plural ? "`swap` keywords" : "`swap` keyword";
     case Token::Kind::Rot:
         return plural ? "`rot` keywords" : "`rot` keyword";
+    case Token::Kind::Cycle:
+        return plural ? "`cycle` keywords" : "`cycle` keyword";
     case Token::Kind::Over:
         return plural ? "`over` keywords" : "`over` keyword";
     case Token::Kind::Plus:
@@ -792,6 +798,7 @@ struct Op {
         Dup, // no operand (0 as int64)
         Swap, // no operand (0 as int64)
         Rot, // no operand (0 as int64)
+        Cycle, // no operand (0 as int64)
         Over, // no operand (0 as int64)
         Plus, // no operand (0 as int64)
         Minus, // no operand (0 as int64)
@@ -867,6 +874,8 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Swap";
     case Op::Kind::Rot:
         return "Rot";
+    case Op::Kind::Cycle:
+        return "Cycle";
     case Op::Kind::Over:
         return "Over";
     case Op::Kind::Plus:
@@ -1724,6 +1733,24 @@ struct Parser {
                 value_stack.push_back(below);
                 value_stack.push_back(under);
             } break;
+            case Token::Kind::Cycle: {
+                if (value_stack.size() < 3) {
+                    error(t.loc,
+                          "not enough elements on the stack for `rot`: "
+                          "expected at least 3");
+                    return std::nullopt;
+                }
+                const s64 top = value_stack.back();
+                value_stack.pop_back();
+                const s64 below = value_stack.back();
+                value_stack.pop_back();
+                const s64 under = value_stack.back();
+                value_stack.pop_back();
+
+                value_stack.push_back(below);
+                value_stack.push_back(top);
+                value_stack.push_back(under);
+            } break;
             case Token::Kind::Over: {
                 if (value_stack.size() < 2) {
                     error(t.loc,
@@ -2268,6 +2295,17 @@ struct Parser {
                 return false;
             }
             ctx.ops.emplace_back(t, Op::Kind::Rot);
+            toks.pop_back();
+            break;
+        case Token::Kind::Cycle:
+            if (current_proc_name.empty()) {
+                error(t.loc,
+                      "`cycle` is only allowed inside of "
+                      "procedure bodies");
+                toks.pop_back();
+                return false;
+            }
+            ctx.ops.emplace_back(t, Op::Kind::Cycle);
             toks.pop_back();
             break;
         case Token::Kind::Over:
@@ -2836,6 +2874,14 @@ namespace x86_64 {
                 out << "\tpushq %rcx\n";
                 out << "\tpushq %rdx\n";
                 break;
+            case Op::Kind::Cycle:
+                out << "\tpopq %rax\n";
+                out << "\tpopq %rcx\n";
+                out << "\tpopq %rdx\n";
+                out << "\tpushq %rcx\n";
+                out << "\tpushq %rax\n";
+                out << "\tpushq %rdx\n";
+                break;
             case Op::Kind::Over:
                 out << "\tpopq %rax\n";
                 out << "\tpopq %rcx\n";
@@ -3270,6 +3316,23 @@ bool typecheck_and_sema(Da_Thing& ctx)
 
             stack.push_back(top);
             stack.push_back(below);
+            stack.push_back(under);
+        } break;
+        case Op::Kind::Cycle: {
+            if (!ensure_stack_size(op, stack.size(), 3))
+                return false;
+
+            const auto top = stack.back();
+            stack.pop_back();
+
+            const auto below = stack.back();
+            stack.pop_back();
+
+            const auto under = stack.back();
+            stack.pop_back();
+
+            stack.push_back(below);
+            stack.push_back(top);
             stack.push_back(under);
         } break;
         case Op::Kind::Over:

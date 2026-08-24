@@ -2,8 +2,8 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn match   depotNumber  "\<-\?\d\+"
-syn match   depotNumber  "\<\d\+#[a-zA-Z0-9]\+"
+syn match   depotNumber  "\<-\?\d\+\>"
+syn match   depotNumber  "\<\d\+#[a-zA-Z0-9]\+\>"
 syn keyword depotBoolean true false
 
 syn match  depotEscape /\\[nrtvab\\0]/ contained
@@ -14,7 +14,18 @@ syn match   depotOperator #\<[<>]=\?\>#
 syn match   depotOperator #\<!=>#
 syn match   depotOperator #\<--\>#
 syn match   depotOperator #\<[@!]\(\(64\)\|\(32\)\|\(16\)\|\(8\)\)\>#
-syn keyword depotOperator drop dup swap rot over mod >int64 >ptr >bool ???
+syn keyword depotOperator
+  \ drop
+  \ dup
+  \ swap
+  \ rot
+  \ cycle
+  \ over
+  \ mod
+  \ >int64
+  \ >ptr
+  \ >bool
+  \ ???
 
 syn keyword depotConditional if elif else then
 syn keyword depotRepeat      while
