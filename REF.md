@@ -139,6 +139,10 @@ Signature: `x y -- y x`
 
 Signature: `x y z -- z y x`
 
+- `cycle` -- roll the top three elements
+
+Signature: `x y z -- y z x`
+
 - `over` -- place a copy of an element below the top on the top
 
 Signature: `x y - x y x`
