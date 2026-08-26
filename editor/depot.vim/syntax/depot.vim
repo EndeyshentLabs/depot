@@ -11,9 +11,9 @@ syn region depotString start=/"/ skip=/\\"/ end=/"/ contains=depotEscape
 
 syn match   depotOperator #\<[-+*/;{}=]\>#
 syn match   depotOperator #\<[<>]=\?\>#
-syn match   depotOperator #\<!=>#
+syn match   depotOperator #\<!=\>#
 syn match   depotOperator #\<--\>#
-syn match   depotOperator #\<[@!]\(\(64\)\|\(32\)\|\(16\)\|\(8\)\)\>#
+syn match   depotOperator #\v<[@!]((64)|(32)|(16)|(8))>#
 syn keyword depotOperator
   \ drop
   \ dup
