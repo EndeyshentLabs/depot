@@ -1,5 +1,6 @@
 include "../std/mem.dpt"
 include "../std/posix.dpt"
+include "../std/format.dpt"
 
 dispatch process proc process-int64 int64 -- {
     drop "We are processing an int64!\n" posix/print
@@ -17,6 +18,12 @@ dispatch process proc process-str int64 ptr -- int64 {
 }
 
 proc main -- int64 {
+    // from stdlib
+    128903812903819023 print posix/nl
+    true print posix/nl
+    false print posix/nl
+    "hello\n" print
+
     1337 process
     true process
     "Hello" process

@@ -1,0 +1,43 @@
+include "./mem.dpt"
+include "./posix.dpt"
+
+const format$int64/buffer/size 21 sizeof(char) * ;
+memory format$int64/buffer format$int64/buffer/size ;
+dispatch format proc format$int64 int64 -- int64 ptr {
+    dup 0 = if
+        drop "0"
+    else
+        dup 0 < if
+            -1 * true
+        else
+            false
+        then
+        swap
+
+        0 format$int64/buffer 20 ptr+ !8
+
+        format$int64/buffer 20 ptr+
+        while over 0 > {
+            -1 ptr+
+            over 10 mod 48 +
+            over !8
+            swap 10 / swap
+        }
+        swap drop
+        swap if
+            1 ptr-
+            dup 45 swap !8
+        then
+        dup format$int64/buffer - >int64 20 swap - swap
+    then
+}
+
+dispatch format proc format$bool bool -- int64 ptr {
+    if   "true"
+    else "false"
+    then
+}
+
+dispatch print proc print$int64 int64 { format posix/print }
+dispatch print proc print$bool bool { format posix/print }
+dispatch print proc print$str int64 ptr { posix/print }

@@ -2925,44 +2925,50 @@ namespace x86_64 {
             case Op::Kind::Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsete %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsete %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Not_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetne %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsetne %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Less_Than:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetl %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsetl %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Less_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetle %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsetle %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Greater_Than:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetg %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsetg %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Greater_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
+                out << "\txorq %rsi, %rsi\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetge %al\n";
-                out << "\tpushq %rax\n";
+                out << "\tsetge %sil\n";
+                out << "\tpushq %rsi\n";
                 break;
             case Op::Kind::Load64:
                 out << "\tpopq %rax\n";
@@ -3004,18 +3010,18 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tmovb %cl, (%rax)\n";
                 break;
+            case Op::Kind::To_Bool:
+                out << "\tpopq %rax\n";
+                out << "\txorq %rcx, %rcx\n";
+                out << "\ttest %rax, %rax\n";
+                out << "\tsetnz %cl\n";
+                out << "\tpushq %rcx\n";
+                break;
             case Op::Kind::Print_Typestack_Then_Halt:
                 ASSERT(
                     op.kind == Op::Kind::Print_Typestack_Then_Halt,
                     "Compiler Bug: Print_Typestack_Then_Halt was not handled "
                     "in typecheker/sema and leaked into the codegen");
-                break;
-            case Op::Kind::To_Bool:
-                out << "\tpopq %rax\n";
-                out << "\tcqo\n";
-                out << "\tcmpq $0, %rax\n";
-                out << "\tsetne %al\n";
-                out << "\tpushq %rax\n";
                 break;
             case Op::Kind::Dispatch:
                 ASSERT(op.kind == Op::Kind::Dispatch,
@@ -3597,6 +3603,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
                    human(blocks.back().second));
 
             const auto expected_stack = blocks.back().first;
+            blocks.pop_back();
             if (!ensure_stack<false>(op, stack, expected_stack, true)) {
                 std::println(stderr,
                              "{}: error: stack altered by `do` block (part of "
