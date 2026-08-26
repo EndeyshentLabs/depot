@@ -2925,50 +2925,50 @@ namespace x86_64 {
             case Op::Kind::Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsete %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsete %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Not_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetne %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsetne %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Less_Than:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetl %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsetl %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Less_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetle %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsetle %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Greater_Than:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetg %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsetg %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Greater_Equal:
                 out << "\tpopq %rcx\n";
                 out << "\tpopq %rax\n";
-                out << "\txorq %rsi, %rsi\n";
+                out << "\txorq %rdx, %rdx\n";
                 out << "\tcmpq %rcx, %rax\n";
-                out << "\tsetge %sil\n";
-                out << "\tpushq %rsi\n";
+                out << "\tsetge %dl\n";
+                out << "\tpushq %rdx\n";
                 break;
             case Op::Kind::Load64:
                 out << "\tpopq %rax\n";
