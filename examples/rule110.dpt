@@ -29,13 +29,13 @@ proc iteration {
     sizeof(tape) 1 -
     1 while over over > {
         dup ?alive >int64
-        over next-tape +ptr !8
+        over next-tape ptr+ !8
         1 +
     } drop drop
 
     sizeof(tape) 1 -
     0 while over over > {
-        dup next-tape +ptr @8 over tape +ptr !8
+        dup next-tape ptr+ @8 over tape ptr+ !8
         1 +
     } drop drop
 }
@@ -43,7 +43,7 @@ proc iteration {
 proc print-tape {
     sizeof(tape)
     0 while over over > {
-        dup tape +ptr @8 >bool if
+        dup tape ptr+ @8 >bool if
             35 putchar
         else
             32 putchar
