@@ -48,47 +48,47 @@ using ssz = std::ptrdiff_t;
 using f32 = float;
 using f64 = double;
 
-namespace fs {
-using namespace std::filesystem;
-}
-
-namespace rgs {
-using namespace std::ranges;
-}
-
-namespace vws {
-using namespace std::ranges::views;
-}
+namespace fs = std::filesystem;
+namespace rgs = std::ranges;
+namespace vws = std::ranges::views;
 // }}}
 
 // UTIL {{{
-#define ASSERT(cond, ...)                                                      \
-    do {                                                                       \
-        if (!(cond)) {                                                         \
-            std::print(stderr,                                                 \
-                       "{}:{}: ASSERTION `{}` FAILED: ",                       \
-                       __FILE__,                                               \
-                       __LINE__,                                               \
-                       #cond);                                                 \
-            std::println(stderr, __VA_ARGS__);                                 \
-            std::abort();                                                      \
-        }                                                                      \
-    } while (0)
-
-[[noreturn]] void todo(std::string_view text,
-                       const std::source_location sl
-                       = std::source_location::current())
+template <typename... Args>
+static void assert_impl(bool cond,
+                        const std::string_view cond_str,
+                        const std::source_location sl,
+                        std::format_string<Args...> fmt,
+                        Args&&... args)
 {
-    std::println(stderr,
-                 "{}:{}:{}: unimplemented: {}",
-                 sl.file_name(),
-                 sl.line(),
-                 sl.column(),
-                 text);
+    if (cond)
+        return;
+
+    std::print(stderr,
+               "{}:{}:{}:[{}]: assertion `{}` failed: ",
+               sl.file_name(),
+               sl.line(),
+               sl.column(),
+               sl.function_name(),
+               cond_str);
+    std::println(stderr, fmt, std::forward<Args>(args)...);
     std::abort();
 }
 
-#define TODO() todo(__PRETTY_FUNCTION__)
+#define ASSERT(cond, ...)                                                      \
+    ::assert_impl((cond), #cond, std::source_location::current(), __VA_ARGS__)
+
+[[noreturn]] void todo(const std::source_location sl
+                       = std::source_location::current())
+{
+    std::println(stderr,
+                 "{}:{}:{}:[{}]: unimplemented",
+                 sl.file_name(),
+                 sl.line(),
+                 sl.column(),
+                 sl.function_name());
+    std::abort();
+}
 
 constexpr fs::path fspath_to_absolute(const fs::path& path)
 {
@@ -98,7 +98,7 @@ constexpr fs::path fspath_to_absolute(const fs::path& path)
 // }}}
 
 // EXECUTE COMMAND (execv style) {{{
-static void execute_command(const std::vector<std::string>& cmd_line)
+static void execute_command(const std::span<const std::string> cmd_line)
 {
     std::print("cmd:");
     for (const auto& s : cmd_line) {
@@ -107,7 +107,7 @@ static void execute_command(const std::vector<std::string>& cmd_line)
     std::println();
 
 #ifdef _WIN32
-    TODO();
+    todo();
 #else
     const char** args = new const char*[cmd_line.size() + 1];
     for (usz i = 0; i < cmd_line.size(); ++i) {
@@ -200,32 +200,53 @@ bool check_fstream_error(const T& file, std::string_view path)
 // }}}
 
 // BETTER "STRING TO S64" {{{
-struct Better_Strtoll_Result {
+template <typename T>
+struct Better_Strtonum_Result {
     enum struct Error_Kind {
         Ok,
         Out_Of_Range,
         Garbage_On_The_End,
     } error { Error_Kind::Ok };
-    s64 value { 0 };
+    T value { 0 };
 
     constexpr operator bool() const { return error == Error_Kind::Ok; }
-    operator s64() { return value; }
+    operator T() { return value; }
 };
 
-Better_Strtoll_Result better_strtoll(const std::string& str, s32 base = 10)
+Better_Strtonum_Result<s64> better_strtoll(const std::string& str,
+                                           s32 base = 10)
 {
     char* endptr = nullptr;
     errno = 0;
     s64 num = std::strtoll(str.c_str(), &endptr, base);
     if (errno == ERANGE)
-        return { Better_Strtoll_Result::Error_Kind::Out_Of_Range };
+        return { Better_Strtonum_Result<s64>::Error_Kind::Out_Of_Range };
 
     if (*endptr != '\0')
-        return { Better_Strtoll_Result::Error_Kind::Garbage_On_The_End,
+        return { Better_Strtonum_Result<s64>::Error_Kind::Garbage_On_The_End,
                  *endptr };
 
     return {
-        Better_Strtoll_Result::Error_Kind::Ok,
+        Better_Strtonum_Result<s64>::Error_Kind::Ok,
+        num,
+    };
+}
+
+Better_Strtonum_Result<u64> better_strtoull(const std::string& str,
+                                            s32 base = 10)
+{
+    char* endptr = nullptr;
+    errno = 0;
+    u64 num = std::strtoull(str.c_str(), &endptr, base);
+    if (errno == ERANGE)
+        return { Better_Strtonum_Result<u64>::Error_Kind::Out_Of_Range };
+
+    if (*endptr != '\0')
+        return { Better_Strtonum_Result<u64>::Error_Kind::Garbage_On_The_End,
+                 static_cast<u64>(*endptr) };
+
+    return {
+        Better_Strtonum_Result<u64>::Error_Kind::Ok,
         num,
     };
 }
@@ -663,8 +684,7 @@ struct Lexer {
                             = better_strtoll(text.substr(0, text.find('#')));
 
                         if (base.error
-                            == Better_Strtoll_Result::Error_Kind::
-                                Garbage_On_The_End) {
+                            == decltype(base)::Error_Kind::Garbage_On_The_End) {
                             std::println(stderr,
                                          "{}: error: unexpected character {}",
                                          loc,
@@ -681,10 +701,9 @@ struct Lexer {
                             return false;
                         }
 
-                        const auto num = better_strtoll(num_str, base.value);
+                        const auto num = better_strtoull(num_str, base.value);
                         if (num.error
-                            == Better_Strtoll_Result::Error_Kind::
-                                Out_Of_Range) {
+                            == decltype(num)::Error_Kind::Out_Of_Range) {
                             std::println(
                                 stderr,
                                 "{}: error: number out of range (accepted "
@@ -697,8 +716,7 @@ struct Lexer {
                         }
 
                         if (num.error
-                            == Better_Strtoll_Result::Error_Kind::
-                                Garbage_On_The_End) {
+                            == decltype(num)::Error_Kind::Garbage_On_The_End) {
                             std::println(stderr,
                                          "{}: error: unexpected character {} "
                                          "in a number of base {}",
@@ -711,7 +729,7 @@ struct Lexer {
                         toks.emplace_back(start_loc,
                                           Token::Kind::Number,
                                           text,
-                                          num.value);
+                                          static_cast<s64>(num.value));
                     } else {
                         do {
                             text.push_back(c);
@@ -954,7 +972,7 @@ struct std::hash<Type> {
     }
 };
 
-static const std::unordered_map<std::string, Type> builtin_types = {
+static const std::unordered_map<std::string_view, Type> builtin_types = {
     { "int64", Type { "int64", 8 } },
     { "bool", Type { "bool", 1 } },
     { "ptr", Type { "ptr", 8 } },
@@ -976,7 +994,7 @@ struct Type_Sig {
     }
 };
 
-constexpr auto typestack_to_string(std::span<const Type> s)
+constexpr auto typestack_to_string(const std::span<const Type> s)
 {
     return vws::join_with(vws::transform(s,
                                          [](const Type& t) -> std::string_view {
@@ -1112,19 +1130,19 @@ struct Parser {
 
     template <typename... Args>
     void
-    error(const Location& loc, std::format_string<Args&...> text, Args... args)
+    error(const Location& loc, std::format_string<Args...> text, Args&&... args)
     {
         has_error = true;
         std::print(stderr, "{}: error: ", loc);
-        std::println(stderr, text, args...);
+        std::println(stderr, text, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     void
-    note(const Location& loc, std::format_string<Args&...> text, Args... args)
+    note(const Location& loc, std::format_string<Args...> text, Args&&... args)
     {
         std::print("{}: note: ", loc);
-        std::println(text, args...);
+        std::println(text, std::forward<Args>(args)...);
     }
 
     std::optional<Token>
