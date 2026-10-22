@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -200,18 +201,16 @@ bool check_fstream_error(const T& file, std::string_view path)
 // }}}
 
 // BETTER "STRING TO S64" {{{
-template <typename T>
-struct Better_Strtonum_Result {
-    enum struct Error_Kind {
-        Ok,
+struct Better_Strtonum_Error {
+    enum struct Kind {
         Out_Of_Range,
-        Garbage_On_The_End,
-    } error { Error_Kind::Ok };
-    T value { 0 };
-
-    constexpr operator bool() const { return error == Error_Kind::Ok; }
-    operator T() { return value; }
+        Garbage_At_The_End,
+    } kind;
+    char garbage_byte { 0 };
 };
+
+template <typename T>
+using Better_Strtonum_Result = std::expected<T, Better_Strtonum_Error>;
 
 Better_Strtonum_Result<s64> better_strtoll(const std::string& str,
                                            s32 base = 10)
@@ -220,16 +219,15 @@ Better_Strtonum_Result<s64> better_strtoll(const std::string& str,
     errno = 0;
     s64 num = std::strtoll(str.c_str(), &endptr, base);
     if (errno == ERANGE)
-        return { Better_Strtonum_Result<s64>::Error_Kind::Out_Of_Range };
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Out_Of_Range });
 
     if (*endptr != '\0')
-        return { Better_Strtonum_Result<s64>::Error_Kind::Garbage_On_The_End,
-                 *endptr };
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Garbage_At_The_End,
+            *endptr });
 
-    return {
-        Better_Strtonum_Result<s64>::Error_Kind::Ok,
-        num,
-    };
+    return num;
 }
 
 Better_Strtonum_Result<u64> better_strtoull(const std::string& str,
@@ -239,17 +237,38 @@ Better_Strtonum_Result<u64> better_strtoull(const std::string& str,
     errno = 0;
     u64 num = std::strtoull(str.c_str(), &endptr, base);
     if (errno == ERANGE)
-        return { Better_Strtonum_Result<u64>::Error_Kind::Out_Of_Range };
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Out_Of_Range });
 
     if (*endptr != '\0')
-        return { Better_Strtonum_Result<u64>::Error_Kind::Garbage_On_The_End,
-                 static_cast<u64>(*endptr) };
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Garbage_At_The_End,
+            *endptr });
 
-    return {
-        Better_Strtonum_Result<u64>::Error_Kind::Ok,
-        num,
-    };
+    return num;
 }
+
+Better_Strtonum_Result<f64> better_strtod(const std::string& str)
+{
+    char* endptr = nullptr;
+    errno = 0;
+    f64 num = std::strtod(str.c_str(), &endptr);
+    if (errno == ERANGE)
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Out_Of_Range });
+
+    if (*endptr != '\0')
+        return std::unexpected(Better_Strtonum_Error {
+            Better_Strtonum_Error::Kind::Garbage_At_The_End,
+            *endptr });
+
+    return num;
+}
+// }}}
+
+// NUMERIC LIMIT {{{
+template <typename T>
+using numeric_limits = std::numeric_limits<std::decay_t<T>>;
 // }}}
 
 // DEPOT SOURCE LOCATION {{{
@@ -591,9 +610,11 @@ struct Lexer {
     bool lex(std::vector<Token>& toks)
     {
         const Scoped_Stopwatch stopwatch { "lexing" };
+        std::string text;
 
         do {
             Location start_loc = loc;
+            text.clear();
 
             if (std::isspace(c)) {
                 // ignore
@@ -602,7 +623,6 @@ struct Lexer {
                     advance();
                 while (c && c != '\n');
             } else if (c == '"') {
-                std::string text;
                 std::string str;
 
                 // consume opening "
@@ -661,8 +681,6 @@ struct Lexer {
 
                 toks.emplace_back(start_loc, Token::Kind::String, text, str);
             } else if ((c == '-' && std::isdigit(peek())) || std::isdigit(c)) {
-                std::string text;
-
                 do {
                     text.push_back(c);
                     advance();
@@ -683,54 +701,62 @@ struct Lexer {
                         const auto base
                             = better_strtoll(text.substr(0, text.find('#')));
 
-                        if (base.error
-                            == decltype(base)::Error_Kind::Garbage_On_The_End) {
+                        if (!base.has_value()
+                            && base.error().kind
+                                   == Better_Strtonum_Error::Kind::
+                                       Garbage_At_The_End) {
                             std::println(stderr,
                                          "{}: error: unexpected character {}",
                                          loc,
-                                         static_cast<char>(base.value));
+                                         base.error().garbage_byte);
                             return false;
                         }
 
-                        if (!(base.value >= 2 && base.value <= 36)) {
+                        if (!(base.value() >= 2 && base.value() <= 36)) {
                             std::println(stderr,
                                          "{}: error: invalid base {}, accepted "
                                          "number literal base range is [2, 36]",
                                          start_loc,
-                                         base.value);
+                                         base.value());
                             return false;
                         }
 
-                        const auto num = better_strtoull(num_str, base.value);
-                        if (num.error
-                            == decltype(num)::Error_Kind::Out_Of_Range) {
-                            std::println(
-                                stderr,
-                                "{}: error: number out of range (accepted "
-                                "range [{}, {}])",
-                                start_loc,
-                                std::numeric_limits<decltype(num.value)>::min(),
-                                std::numeric_limits<
-                                    decltype(num.value)>::max());
-                            return false;
-                        }
+                        const auto num = better_strtoull(num_str, base.value());
 
-                        if (num.error
-                            == decltype(num)::Error_Kind::Garbage_On_The_End) {
-                            std::println(stderr,
-                                         "{}: error: unexpected character {} "
-                                         "in a number of base {}",
-                                         start_loc,
-                                         num.value,
-                                         base.value);
-                            return false;
-                        }
+                        if (num.has_value()) {
+                            toks.emplace_back(start_loc,
+                                              Token::Kind::Number,
+                                              text,
+                                              static_cast<s64>(num.value()));
+                        } else {
+                            if (num.error().kind
+                                == Better_Strtonum_Error::Kind::Out_Of_Range) {
+                                std::println(
+                                    stderr,
+                                    "{}: error: number out of range (accepted "
+                                    "range [{}, {}])",
+                                    start_loc,
+                                    numeric_limits<
+                                        decltype(num.value())>::min(),
+                                    numeric_limits<
+                                        decltype(num.value())>::max());
+                                return false;
+                            }
 
-                        toks.emplace_back(start_loc,
-                                          Token::Kind::Number,
-                                          text,
-                                          static_cast<s64>(num.value));
-                    } else {
+                            if (num.error().kind
+                                == Better_Strtonum_Error::Kind::
+                                    Garbage_At_The_End) {
+                                std::println(
+                                    stderr,
+                                    "{}: error: unexpected character {} "
+                                    "in a number of base {}",
+                                    start_loc,
+                                    num.error().garbage_byte,
+                                    base.value());
+                                return false;
+                            }
+                        }
+                    } else { // !std::isalnum(c)
                         do {
                             text.push_back(c);
                             advance();
@@ -745,25 +771,41 @@ struct Lexer {
                                  c);
                     return false;
                 } else {
-                    char* endptr = nullptr;
-                    const s64 num = std::strtoll(text.c_str(), &endptr, 10);
+                    const auto num = better_strtoll(text);
 
-                    if (*endptr != '\0') {
-                        std::println(stderr,
-                                     "{}: error: unexpected character {}",
-                                     loc,
-                                     c);
-                        return false;
+                    if (num.has_value()) {
+                        toks.emplace_back(start_loc,
+                                          Token::Kind::Number,
+                                          text,
+                                          num.value());
+                    } else {
+                        if (num.error().kind
+                            == Better_Strtonum_Error::Kind::Out_Of_Range) {
+                            std::println(
+                                stderr,
+                                "{}: error: number out of range (accepted "
+                                "range [{}, {}])",
+                                start_loc,
+                                numeric_limits<decltype(num.value())>::min(),
+                                numeric_limits<decltype(num.value())>::max());
+                            return false;
+                        }
+
+                        // Now I'm looking at this and I think this branch will
+                        // never hit, but better safe than sorry
+                        // - @EndeyshentLabs, <2026-10-22>
+                        if (num.error().kind
+                            == Better_Strtonum_Error::Kind::
+                                Garbage_At_The_End) {
+                            std::println(stderr,
+                                         "{}: error: unexpected character {}",
+                                         loc,
+                                         num.error().garbage_byte);
+                            return false;
+                        }
                     }
-
-                    toks.emplace_back(start_loc,
-                                      Token::Kind::Number,
-                                      text,
-                                      num);
                 }
-            } else if (std::isprint(c)) {
-                std::string text;
-
+            } else if (std::isprint(c)) { // !std::isspace(c)
                 do {
                     text.push_back(c);
                     advance();
