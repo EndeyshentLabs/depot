@@ -1,19 +1,18 @@
-include "../std/c.dpt"
-
-extern proc printf ptr int64 -- ; // NOTE: add `poly` type
-proc printn int64 -- { "%d" >cstr swap printf }
+include "../std/posix.dpt"
+include "../std/format.dpt"
 
 proc main -- int64 {
     1 while dup 100 <= {
         dup 15 mod 0 = if
-            "FizzBuzz" c/puts
+            "FizzBuzz" print
         else dup 3 mod 0 = elif
-            "Fizz" c/puts
+            "Fizz" print
         else dup 5 mod 0 = elif
-            "Buzz" c/puts
+            "Buzz" print
         else
-            dup printn 10 putchar
+            dup print
         then
+        "\n" print
 
         1 +
     }

@@ -13,4 +13,5 @@ BreakBeforeBinaryOperators: All
 BreakConstructorInitializers: BeforeComma
 BreakInheritanceList: BeforeComma
 BreakTemplateDeclarations: Yes
+IndentPPDirectives: AfterHash
 ...
