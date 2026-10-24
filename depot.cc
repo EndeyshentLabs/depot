@@ -549,42 +549,52 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
 struct Lexer {
     char c { 0 };
     usz cursor { 0 };
-    Location loc { };
     std::string source { };
 
-    bool has_error { false };
+    Location loc { };
+    std::string text { };
+    Location start_loc { };
 
-    Lexer(const fs::path& path)
+    bool ended { false };
+
+    static std::optional<Lexer> create(const fs::path& path)
     {
         std::ifstream file { path };
 
-        if (!check_fstream_error(file, path.string())) {
-            has_error = true;
-            return;
-        }
+        if (!check_fstream_error(file, path.string()))
+            return std::nullopt;
 
         std::stringstream buffer;
         buffer << file.rdbuf();
-        source = buffer.str();
+        std::string source = buffer.str();
 
+        Location loc { };
         loc.file_path = path.lexically_normal();
+
         if (source.empty()) {
-            std::println(stderr, "{}: error: Empty file", loc);
+            std::println(stderr, "{}: error: empty file", loc);
             std::println("{}: note: consider adding procedure main", loc);
             std::println("|\t// minimal program:");
             std::println("|\tlink \"c\"\n|\tproc main -- int64 {{ 0 }}");
-            has_error = true;
-            return;
+            return std::nullopt;
         }
-        c = source[cursor];
+
+        char c = source[0];
         ASSERT(c != 0,
                "{}: error: first character of the file cannot be NUL",
                loc);
+
+        Lexer l { };
+        l.c = c;
+        l.source = source;
+        l.loc = loc;
+        return l;
     }
 
     bool advance()
     {
         if (cursor >= source.size() - 1) {
+            ended = true;
             c = 0;
             return false;
         }
@@ -602,222 +612,249 @@ struct Lexer {
         return true;
     }
 
-    constexpr char peek(usz offset = 1) const
+    inline char peek(usz offset = 1) const
     {
         if (cursor + offset >= source.size() - 1)
             return 0;
         return source[cursor + offset];
     }
 
+    inline void consume()
+    {
+        text.push_back(c);
+        advance();
+    }
+
+    bool lex_string(std::vector<Token>& toks)
+    {
+        std::string str;
+
+        // consume opening "
+        consume();
+
+        while (c != '"') {
+            text.push_back(c);
+
+            if (c == '\\') { // TODO: more escapes
+                if (peek() == 'n')
+                    str.push_back('\n');
+                else if (peek() == 'r')
+                    str.push_back('\r');
+                else if (peek() == 't')
+                    str.push_back('\t');
+                else if (peek() == 'v')
+                    str.push_back('\v');
+                else if (peek() == 'f')
+                    str.push_back('\f');
+                else if (peek() == 'a')
+                    str.push_back('\a');
+                else if (peek() == 'b')
+                    str.push_back('\b');
+                else if (peek() == '\\')
+                    str.push_back('\\');
+                else if (peek() == '0')
+                    str.push_back('\0');
+                else {
+                    std::println(
+                        stderr,
+                        "{}: error: unknown string escape character {}",
+                        start_loc,
+                        peek());
+                    return false;
+                }
+
+                consume();
+            } else
+                str.push_back(c);
+
+            if (!advance()) {
+                std::println(stderr, "{}: error: unclosed string literal", loc);
+                std::println("{}: opened here", start_loc);
+                return false;
+            }
+        }
+
+        // consume closing "
+        consume();
+
+        if (!std::isspace(c)) {
+            std::println(stderr,
+                         "{}: error: junk at the end of the string",
+                         loc);
+            return false;
+        }
+
+        toks.emplace_back(start_loc, Token::Kind::String, text, str);
+
+        return true;
+    }
+
+    bool lex_intlit_with_base(std::vector<Token>& toks)
+    {
+        std::string num_str;
+        while (!ended && std::isalnum(c)) {
+            num_str.push_back(c);
+            consume();
+        }
+
+        const auto base = better_strtoll(text.substr(0, text.find('#')));
+
+        if (const auto err = base.error();
+            !base.has_value()
+            && err.kind == Better_Strtonum_Error::Kind::Garbage_At_The_End) {
+            std::println(stderr,
+                         "{}: error: unexpected character {}",
+                         loc,
+                         err.garbage_byte);
+            return false;
+        }
+
+        if (!(base.value() >= 2 && base.value() <= 36)) {
+            std::println(stderr,
+                         "{}: error: invalid base {}, accepted "
+                         "number literal base range is [2, 36]",
+                         start_loc,
+                         base.value());
+            return false;
+        }
+
+        const auto num = better_strtoull(num_str, base.value());
+
+        if (!num.has_value()) {
+            const Better_Strtonum_Error err = num.error();
+
+            switch (err.kind) {
+            case Better_Strtonum_Error::Kind::Out_Of_Range:
+                std::println(stderr,
+                             "{}: error: number out of range (accepted "
+                             "range [{}, {}])",
+                             start_loc,
+                             numeric_limits<decltype(num.value())>::min(),
+                             numeric_limits<decltype(num.value())>::max());
+                break;
+            case Better_Strtonum_Error::Kind::Garbage_At_The_End:
+                std::println(stderr,
+                             "{}: error: unexpected character {} "
+                             "in a number of base {}",
+                             start_loc,
+                             err.garbage_byte,
+                             base.value());
+                break;
+            default:
+                std::unreachable();
+            }
+
+            return false;
+        }
+
+        toks.emplace_back(start_loc,
+                          Token::Kind::Number,
+                          text,
+                          static_cast<s64>(num.value()));
+        return true;
+    }
+
+    bool lex_intlit(std::vector<Token>& toks)
+    {
+        const auto num = better_strtoll(text);
+
+        if (!num.has_value()) {
+            const Better_Strtonum_Error err = num.error();
+
+            switch (err.kind) {
+            case Better_Strtonum_Error::Kind::Out_Of_Range:
+                std::println(stderr,
+                             "{}: error: number out of range (accepted "
+                             "range [{}, {}])",
+                             start_loc,
+                             numeric_limits<decltype(num.value())>::min(),
+                             numeric_limits<decltype(num.value())>::max());
+                break;
+            case Better_Strtonum_Error::Kind::Garbage_At_The_End:
+                std::println(stderr,
+                             "{}: error: unexpected character {}",
+                             loc,
+                             err.garbage_byte);
+                break;
+            default:
+                std::unreachable();
+            }
+
+            return false;
+        }
+
+        toks.emplace_back(start_loc, Token::Kind::Number, text, num.value());
+        return true;
+    }
+
+    bool lex_number(std::vector<Token>& toks)
+    {
+        while (!ended && std::isdigit(c) && c != '#')
+            consume();
+
+        if (c == '#') { // `text` is base
+            // consume #
+            consume();
+
+            if (!std::isalnum(c))
+                if (!lex_ident(toks))
+                    return false;
+
+            if (!lex_intlit_with_base(toks))
+                return false;
+        } else if (!std::isspace(c)) {
+            if (!lex_ident(toks))
+                return false;
+        } else {
+            if (!lex_intlit(toks))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool lex_ident(std::vector<Token>& toks)
+    {
+        while (!ended && !std::isspace(c))
+            consume();
+
+        if (keywords.contains(text))
+            toks.emplace_back(start_loc, keywords.at(text), text);
+        else
+            toks.emplace_back(start_loc, Token::Kind::Ident, text);
+
+        return true;
+    }
+
     bool lex(std::vector<Token>& toks)
     {
         const Scoped_Stopwatch stopwatch { "lexing" };
-        std::string text;
+
+        if (ended)
+            return false;
 
         do {
-            Location start_loc = loc;
+            start_loc = loc;
             text.clear();
 
             if (std::isspace(c)) {
                 // ignore
             } else if (c == '/' && peek() == '/') {
-                do
-                    advance();
-                while (c && c != '\n');
+                while (!ended && c != '\n')
+                    if (!advance())
+                        break;
             } else if (c == '"') {
-                std::string str;
-
-                // consume opening "
-                text.push_back(c);
-                advance();
-
-                while (c && c != '"') {
-                    text.push_back(c);
-
-                    if (c == '\\') { // TODO: more escapes
-                        if (peek() == 'n')
-                            str.push_back('\n');
-                        else if (peek() == 'r')
-                            str.push_back('\r');
-                        else if (peek() == 't')
-                            str.push_back('\t');
-                        else if (peek() == 'v')
-                            str.push_back('\v');
-                        else if (peek() == 'f')
-                            str.push_back('\f');
-                        else if (peek() == 'a')
-                            str.push_back('\a');
-                        else if (peek() == 'b')
-                            str.push_back('\b');
-                        else if (peek() == '\\')
-                            str.push_back('\\');
-                        else if (peek() == '0')
-                            str.push_back('\0');
-                        else {
-                            std::println(
-                                stderr,
-                                "{}: error: unknown string escape character {}",
-                                start_loc,
-                                peek());
-                            return false;
-                        }
-
-                        advance();
-                        text.push_back(c);
-                    } else
-                        str.push_back(c);
-
-                    advance();
-                }
-
-                // consume closing "
-                text.push_back(c);
-                advance();
-
-                if (!std::isspace(c)) {
-                    std::println(stderr,
-                                 "{}: error: junk at the end of the string",
-                                 loc);
+                if (!lex_string(toks))
                     return false;
-                }
-
-                toks.emplace_back(start_loc, Token::Kind::String, text, str);
             } else if ((c == '-' && std::isdigit(peek())) || std::isdigit(c)) {
-                do {
-                    text.push_back(c);
-                    advance();
-                } while (c && std::isdigit(c) && c != '#');
+                if (c == '-')
+                    consume();
 
-                if (c == '#') { // `text` is base
-                    // consume #
-                    text.push_back(c);
-                    advance();
-                    if (std::isalnum(c)) {
-                        std::string num_str;
-                        do {
-                            text.push_back(c);
-                            num_str.push_back(c);
-                            advance();
-                        } while (c && std::isalnum(c));
-
-                        const auto base
-                            = better_strtoll(text.substr(0, text.find('#')));
-
-                        if (!base.has_value()
-                            && base.error().kind
-                                   == Better_Strtonum_Error::Kind::
-                                       Garbage_At_The_End) {
-                            std::println(stderr,
-                                         "{}: error: unexpected character {}",
-                                         loc,
-                                         base.error().garbage_byte);
-                            return false;
-                        }
-
-                        if (!(base.value() >= 2 && base.value() <= 36)) {
-                            std::println(stderr,
-                                         "{}: error: invalid base {}, accepted "
-                                         "number literal base range is [2, 36]",
-                                         start_loc,
-                                         base.value());
-                            return false;
-                        }
-
-                        const auto num = better_strtoull(num_str, base.value());
-
-                        if (num.has_value()) {
-                            toks.emplace_back(start_loc,
-                                              Token::Kind::Number,
-                                              text,
-                                              static_cast<s64>(num.value()));
-                        } else {
-                            if (num.error().kind
-                                == Better_Strtonum_Error::Kind::Out_Of_Range) {
-                                std::println(
-                                    stderr,
-                                    "{}: error: number out of range (accepted "
-                                    "range [{}, {}])",
-                                    start_loc,
-                                    numeric_limits<
-                                        decltype(num.value())>::min(),
-                                    numeric_limits<
-                                        decltype(num.value())>::max());
-                                return false;
-                            }
-
-                            if (num.error().kind
-                                == Better_Strtonum_Error::Kind::
-                                    Garbage_At_The_End) {
-                                std::println(
-                                    stderr,
-                                    "{}: error: unexpected character {} "
-                                    "in a number of base {}",
-                                    start_loc,
-                                    num.error().garbage_byte,
-                                    base.value());
-                                return false;
-                            }
-                        }
-                    } else { // !std::isalnum(c)
-                        do {
-                            text.push_back(c);
-                            advance();
-                        } while (c && !std::isspace(c));
-
-                        toks.emplace_back(start_loc, Token::Kind::Ident, text);
-                    }
-                } else if (!std::isspace(c)) { // NOTE(:IntLitGarbage)
-                    std::println(stderr,
-                                 "{}: error: unexpected character {}",
-                                 loc,
-                                 c);
+                if (!lex_number(toks))
                     return false;
-                } else {
-                    const auto num = better_strtoll(text);
-
-                    if (num.has_value()) {
-                        toks.emplace_back(start_loc,
-                                          Token::Kind::Number,
-                                          text,
-                                          num.value());
-                    } else {
-                        if (num.error().kind
-                            == Better_Strtonum_Error::Kind::Out_Of_Range) {
-                            std::println(
-                                stderr,
-                                "{}: error: number out of range (accepted "
-                                "range [{}, {}])",
-                                start_loc,
-                                numeric_limits<decltype(num.value())>::min(),
-                                numeric_limits<decltype(num.value())>::max());
-                            return false;
-                        }
-
-                        // NOTE(:IntLitGarbage): Now I'm looking at this and I
-                        // think this branch will never hit, but better safe
-                        // than sorry.
-                        // - @EndeyshentLabs, <2026-10-22>
-                        if (num.error().kind
-                            == Better_Strtonum_Error::Kind::
-                                Garbage_At_The_End) {
-                            std::println(stderr,
-                                         "{}: error: unexpected character {}",
-                                         loc,
-                                         num.error().garbage_byte);
-                            return false;
-                        }
-                    }
-                }
             } else if (std::isprint(c)) { // !std::isspace(c)
-                do {
-                    text.push_back(c);
-                    advance();
-                } while (c && !std::isspace(c));
-
-                if (keywords.contains(text))
-                    toks.emplace_back(start_loc, keywords.at(text), text);
-                else
-                    toks.emplace_back(start_loc, Token::Kind::Ident, text);
+                if (!lex_ident(toks))
+                    return false;
             } else {
                 std::println(stderr,
                              "{}: error: unexpected character {}",
@@ -1713,14 +1750,14 @@ struct Parser {
         else
             return true;
 
-        Lexer l { found.value() };
-        if (l.has_error) {
+        auto l = Lexer::create(found.value());
+        if (!l.has_value()) {
             note(self.loc, "in file included from here");
             return false;
         }
 
         std::vector<Token> included_toks;
-        if (!l.lex(included_toks)) {
+        if (!l->lex(included_toks)) {
             note(self.loc, "in file included from here");
             return false;
         }
@@ -3840,12 +3877,12 @@ int main(int argc, char** argv)
 
     included_paths.insert(fspath_to_absolute(file_path));
 
-    Lexer l { file_path };
-    if (l.has_error)
+    auto l = Lexer::create(file_path);
+    if (!l.has_value())
         return 2;
 
     std::vector<Token> toks;
-    if (!l.lex(toks))
+    if (!l->lex(toks))
         return 3;
 
 #ifdef DEPOT_DEBUG
