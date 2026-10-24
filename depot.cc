@@ -957,7 +957,7 @@ static constexpr std::string_view human(Op::Kind kind)
     case Op::Kind::Else:
         return "Else";
     case Op::Kind::Elif:
-        return "Else_If";
+        return "Elif";
     case Op::Kind::Then:
         return "Then";
     case Op::Kind::While:
@@ -3588,8 +3588,8 @@ bool typecheck_and_sema(Da_Thing& ctx)
             blocks.push_back(std::make_pair(stack, op.kind));
             break;
         case Op::Kind::Do: {
-            ASSERT(blocks.size() >= 1
-                       && (blocks.back().second == Op::Kind::While),
+            ASSERT(!blocks.empty(), "Compiler Bug: Do in typechecker");
+            ASSERT(blocks.back().second == Op::Kind::While,
                    "Compiler Bug: Do in typechecker");
             if (!ensure_stack(op, stack, std::array<Type, 1> { bool_type }))
                 return false;
@@ -3618,9 +3618,9 @@ bool typecheck_and_sema(Da_Thing& ctx)
             blocks.push_back(std::make_pair(stack, op.kind));
             break;
         case Op::Kind::Else:
-            ASSERT(blocks.size() >= 1
-                       && (blocks.back().second == Op::Kind::If
-                           || blocks.back().second == Op::Kind::Elif),
+            ASSERT(!blocks.empty(), "Compiler Bug: Else in typechecker");
+            ASSERT(blocks.back().second == Op::Kind::If
+                       || blocks.back().second == Op::Kind::Elif,
                    "Compiler Bug: Else in typechecker");
             blocks.push_back(std::make_pair(stack, op.kind));
             stack = blocks.at(blocks.size() - 2).first;
@@ -3656,8 +3656,9 @@ bool typecheck_and_sema(Da_Thing& ctx)
                 } while (!blocks.empty()
                          && blocks.back().second != Op::Kind::If);
 
+                ASSERT(!blocks.empty(), "Compiler Bug: Then in typecheker");
                 ASSERT(
-                    !blocks.empty() && blocks.back().second == Op::Kind::If,
+                    blocks.back().second == Op::Kind::If,
                     "Compiler Bug: expected to have If block's stack, but "
                     "something went wrong and we either didn't get anything, "
                     "or got something that isn't an If block stack");
@@ -3699,7 +3700,10 @@ bool typecheck_and_sema(Da_Thing& ctx)
                        human(blocks.back().second));
             break;
         case Op::Kind::End_While: {
-            ASSERT(!blocks.empty() && blocks.back().second == Op::Kind::While,
+            ASSERT(!blocks.empty(),
+                   "Compiler Bug: unreachable in typechecker, End_While "
+                   "doesn't close anything at all");
+            ASSERT(blocks.back().second == Op::Kind::While,
                    "Compiler Bug: unreachable in typechecker, End_While closes "
                    "{} operation and this is not allowed",
                    human(blocks.back().second));
@@ -3724,9 +3728,12 @@ bool typecheck_and_sema(Da_Thing& ctx)
             }
         } break;
         case Op::Kind::Elif: {
-            ASSERT(!blocks.empty() && blocks.back().second == Op::Kind::Else
+            ASSERT(!blocks.empty(),
+                   "Compiler Bug: unreachable in typechecker, Elif doesn't "
+                   "close anything at all");
+            ASSERT(blocks.back().second == Op::Kind::Else
                        || blocks.back().second == Op::Kind::Elif,
-                   "Compiler Bug: unreachable in typechecker, Else_If closes "
+                   "Compiler Bug: unreachable in typechecker, Elif closes "
                    "{} operation and this is not allowed",
                    human(blocks.back().second));
 
@@ -3744,7 +3751,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
 
             ASSERT(original_stack.begin() != blocks.end(),
                    "Compiler Bug: couldn't find block opened by If when "
-                   "typechecking Else_If");
+                   "typechecking Elif");
 
             stack = original_stack.back().first;
         } break;
