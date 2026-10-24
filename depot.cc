@@ -14,12 +14,12 @@
 #include <fstream>
 #include <print>
 #include <ranges>
-#include <set>
 #include <source_location>
 #include <span>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _WIN32
@@ -1128,7 +1128,7 @@ constexpr auto find_memory_def(const Da_Thing& ctx, std::string_view name)
     });
 }
 
-static std::set<fs::path> included_paths { };
+static std::unordered_set<fs::path> included_paths { };
 struct Parser {
     std::vector<Token> toks;
     bool has_error { false };
@@ -1222,7 +1222,7 @@ struct Parser {
     }
 
     std::optional<Token> expect(const Token& self,
-                                const std::set<Token::Kind>& kinds,
+                                const std::unordered_set<Token::Kind>& kinds,
                                 bool consume = true)
     {
         using namespace std::string_view_literals;
