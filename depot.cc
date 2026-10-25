@@ -1173,12 +1173,13 @@ struct Parser {
     fs::path current_file { };
     std::string_view current_proc_name { };
 
-    Parser(std::span<Token> toks, Da_Thing& ctx, const fs::path& file_path)
-        : toks { toks.size() }
+    Parser(const std::span<const Token> toks,
+           Da_Thing& ctx,
+           const fs::path& file_path)
+        : toks { std::from_range, vws::reverse(toks) }
         , ctx { ctx }
         , current_file { file_path }
     {
-        this->toks.assign_range(rgs::reverse_view(toks));
     }
 
     enum struct Name_Availabilty {
