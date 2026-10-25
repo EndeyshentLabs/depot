@@ -3186,10 +3186,12 @@ static bool compile(Target tgt, fs::path input_path, const Da_Thing& ctx)
 
         const fs::path asm_path { dotbuild / (base_path.string() + ".S") };
         const fs::path obj_path { dotbuild / (base_path.string() + ".o") };
-        std::ofstream file { asm_path };
-        check_fstream_error(file, asm_path.string());
-        file << out.value();
-        file.close();
+
+        {
+            std::ofstream file { asm_path };
+            check_fstream_error(file, asm_path.string());
+            file << out.value();
+        }
 
         const std::vector<std::string> asm_cmdline = {
             "as", "--64", "-o", obj_path.string(), asm_path.string(),
