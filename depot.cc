@@ -359,6 +359,7 @@ struct Token {
 
         To_Int64,
         To_Ptr,
+        Ptr_To,
         To_Bool,
 
         True,
@@ -424,6 +425,7 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
 
     { ">int64", Token::Kind::To_Int64 },
     { ">ptr", Token::Kind::To_Ptr },
+    { "ptr-to", Token::Kind::Ptr_To },
     { ">bool", Token::Kind::To_Bool },
 
     { "true", Token::Kind::True },
@@ -525,6 +527,8 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
     case Token::Kind::To_Int64:
         return plural ? "casts to an int64" : "cast to an int64";
     case Token::Kind::To_Ptr:
+        return plural ? "casts to an opaque ptr" : "cast to an opaque ptr";
+    case Token::Kind::Ptr_To:
         return plural ? "casts to a ptr" : "cast to a ptr";
     case Token::Kind::To_Bool:
         return plural ? "casts to a bool" : "cast to a bool";
@@ -926,7 +930,8 @@ struct Op {
         Print_Typestack_Then_Halt, // no operand (0 as int64)
 
         To_Int64, // no operand (0 as int64)
-        To_Ptr, // no operand (0 as int64)
+        To_Opaque, // no operand (0 as int64)
+        To_Ptr_To, // no operand (0 as int64)
         To_Bool, // no operand (0 as int64)
     } kind;
 
@@ -1020,8 +1025,10 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Print_Typestack_Then_Halt";
     case Op::Kind::To_Int64:
         return "To_Int64";
-    case Op::Kind::To_Ptr:
-        return "To_Ptr";
+    case Op::Kind::To_Opaque:
+        return "To_Opaque";
+    case Op::Kind::To_Ptr_To:
+        return "To_Ptr_To";
     case Op::Kind::To_Bool:
         return "To_Bool";
     default:
@@ -1029,36 +1036,125 @@ static constexpr std::string_view human(Op::Kind kind)
     }
 }
 
-struct Type {
-    std::string name;
-    u64 size_of;
+enum struct Builtin_Type {
+    Int64,
+    Ptr,
+    Bool,
+};
 
-    constexpr bool operator==(const Type& other) const noexcept
+constexpr usz size_of_builtin(Builtin_Type bt)
+{
+    switch (bt) {
+    case Builtin_Type::Int64:
+    case Builtin_Type::Ptr:
+        return 8;
+    case Builtin_Type::Bool:
+        return 1;
+    default:
+        std::unreachable();
+    }
+}
+
+constexpr std::string_view name_of_builtin(Builtin_Type bt)
+{
+    switch (bt) {
+    case Builtin_Type::Ptr:
+        return "ptr";
+    case Builtin_Type::Int64:
+        return "int64";
+    case Builtin_Type::Bool:
+        return "bool";
+    default:
+        std::unreachable();
+    }
+}
+
+struct Type {
+    Builtin_Type inner;
+    u64 indirection { 0 };
+
+    constexpr bool is_basic() const { return indirection == 0; }
+
+    constexpr bool is_ptr() const
     {
-        return name == other.name && size_of == other.size_of;
+        return indirection > 0 || inner == Builtin_Type::Ptr;
     }
 
-    constexpr bool operator!=(const Type& other) const noexcept
+    constexpr bool is_opaque() const
+    {
+        return indirection == 0 && inner == Builtin_Type::Ptr;
+    }
+
+    constexpr bool is_number_like() const
+    {
+        return is_ptr() || inner == Builtin_Type::Int64;
+    }
+
+    constexpr u64 size_of() const
+    {
+        return (indirection > 0) ? 8 : size_of_builtin(inner);
+    }
+
+    constexpr Type deref() const
+    {
+        ASSERT(is_ptr(), "Compiler Bug: typecheker should check this first");
+        // clang-format off
+        return is_opaque()
+             ? Type { Builtin_Type::Int64, 0 }
+             : Type { inner, indirection - 1 };
+        // clang-format on
+    }
+
+    constexpr bool operator==(const Type& other) const
+    {
+        return inner == other.inner && indirection == other.indirection;
+    }
+
+    constexpr bool operator!=(const Type& other) const
     {
         return !(*this == other);
     }
+
+    constexpr bool compatible_with(const Type& other) const
+    {
+        return (is_ptr() && other.is_ptr()) || (*this == other);
+    }
+
+    constexpr inline std::string to_string() const
+    {
+        std::string result { name_of_builtin(inner) };
+        for (usz i = 0; i < indirection; ++i)
+            result += " ptr-to";
+
+        return result;
+    }
+
+    constexpr operator const Builtin_Type&() const { return inner; }
+    constexpr operator const std::string() const { return to_string(); }
 };
 
 template <>
-struct std::hash<Type> {
-    std::size_t operator()(const Type& t) const noexcept
+struct std::formatter<Type> {
+    template <typename PC>
+    constexpr PC::iterator parse(PC& ctx)
     {
-        const std::size_t h1 = std::hash<decltype(t.name)> { }(t.name);
-        const std::size_t h2 = std::hash<decltype(t.size_of)> { }(t.size_of);
-        return h1 ^ (h2 << 1);
+        return ctx.begin();
+    }
+
+    template <typename FC>
+    FC::iterator format(const Type& t, FC& ctx) const
+    {
+        return std::format_to(ctx.out(), "{}", t.to_string());
     }
 };
 
+// clang-format off
 static const std::unordered_map<std::string_view, Type> builtin_types = {
-    { "int64", Type { "int64", 8 } },
-    { "bool", Type { "bool", 1 } },
-    { "ptr", Type { "ptr", 8 } },
+    { name_of_builtin(Builtin_Type::Ptr),   Type { Builtin_Type::Ptr,   0 } },
+    { name_of_builtin(Builtin_Type::Int64), Type { Builtin_Type::Int64, 0 } },
+    { name_of_builtin(Builtin_Type::Bool),  Type { Builtin_Type::Bool,  0 } },
 };
+// clang-format on
 
 struct Type_Sig {
     std::vector<Type> input_types;
@@ -1078,8 +1174,8 @@ struct Type_Sig {
 
 constexpr auto typestack_to_string(const std::span<const Type> s)
 {
-    return s | vws::transform([](const Type& t) -> std::string_view {
-               return t.name;
+    return s | vws::transform([](const Type& t) -> std::string {
+               return t.to_string();
            })
          | vws::join_with(' ');
 }
@@ -1313,6 +1409,22 @@ struct Parser {
 
                 delimit_loc = tok.loc;
                 return_type_mode = true;
+                continue;
+            }
+
+            if (tok.kind == Token::Kind::Ptr_To) {
+                auto& types = result.input_types;
+                if (return_type_mode)
+                    types = result.return_types;
+
+                if (types.empty()) {
+                    error(tok,
+                          "{} must follow the type, but the type stack "
+                          "is empty",
+                          human(tok.kind));
+                    return std::nullopt;
+                }
+                types.back().indirection += 1;
                 continue;
             }
 
@@ -2069,6 +2181,7 @@ struct Parser {
             case Token::Kind::Store8:
             case Token::Kind::To_Int64:
             case Token::Kind::To_Ptr:
+            case Token::Kind::Ptr_To:
             case Token::Kind::To_Bool:
             case Token::Kind::Include:
             case Token::Kind::Const:
@@ -2673,7 +2786,19 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ctx.ops.emplace_back(t, Op::Kind::To_Ptr);
+            ctx.ops.emplace_back(t, Op::Kind::To_Opaque);
+            toks.pop_back();
+            break;
+        case Token::Kind::Ptr_To:
+            if (is_in_global_scope()) {
+                error(t,
+                      "{} is only allowed inside of "
+                      "procedure bodies",
+                      human(t.kind));
+                toks.pop_back();
+                return false;
+            }
+            ctx.ops.emplace_back(t, Op::Kind::To_Ptr_To);
             toks.pop_back();
             break;
         case Token::Kind::To_Bool:
@@ -3133,7 +3258,8 @@ namespace x86_64 {
             case Op::Kind::While:
             case Op::Kind::Then:
             case Op::Kind::To_Int64:
-            case Op::Kind::To_Ptr:
+            case Op::Kind::To_Opaque:
+            case Op::Kind::To_Ptr_To:
                 break;
             default:
                 std::unreachable();
@@ -3231,11 +3357,6 @@ static bool compile(Target tgt, fs::path input_path, const Da_Thing& ctx)
 // }}}
 
 // TYPECHECKER {{{
-static constexpr Type any_type {
-    "any_type",
-    0,
-};
-
 template <bool enable_logging, typename... Args>
 inline constexpr void print_error(std::format_string<Args...> fmt,
                                   Args&&... args)
@@ -3310,17 +3431,14 @@ bool ensure_stack(const Op& self,
         return true;
 
     for (ssz i = expect.size() - 1; i >= 0; --i) {
-        if (expect[i] == any_type)
-            continue;
-
-        if (expect[i] != have[i]) {
+        if (!expect[i].compatible_with(have[i])) {
             print_error<enable_logging>(
                 "{}: error: expected argument {} to be of type `{}`, "
                 "but got `{}`",
                 self.tok.loc,
                 expect.size() - i,
-                expect[i].name,
-                have[i].name);
+                expect[i],
+                have[i]);
             return false;
         }
     }
@@ -3453,28 +3571,28 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.push_back(stack[stack.size() - 2]);
             break;
         case Op::Kind::Plus:
-        case Op::Kind::Minus:
+        case Op::Kind::Minus: {
             if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
-            if (!ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { int64_type, int64_type })
-                && !ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { ptr_type, ptr_type })) {
-                std::println(stderr,
-                             "{}: error: expected arguments of {} to be `int64 "
-                             "int64` or `ptr ptr`",
-                             op.tok.loc,
-                             human(op.tok.kind));
+            const auto v2 = stack[stack.size() - 1];
+            const auto v1 = stack[stack.size() - 2];
+            if (v1 != v2 || !v1.is_number_like() || !v2.is_number_like()) {
+                std::println(
+                    stderr,
+                    "{0}: error: expected arguments of {1} to be either `{2} "
+                    "{2}` or `{3} {3}`",
+                    op.tok.loc,
+                    human(op.tok.kind),
+                    int64_type,
+                    ptr_type);
+                std::println("{}: note: argument 1: `{}`", op.tok.loc, v1);
+                std::println("{}: note: argument 2: `{}`", op.tok.loc, v2);
                 return false;
             }
 
             stack.pop_back();
-            break;
+        } break;
         case Op::Kind::Mult:
         case Op::Kind::Div:
         case Op::Kind::Mod:
@@ -3486,83 +3604,106 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.pop_back();
             break;
         case Op::Kind::Equal:
-        case Op::Kind::Not_Equal:
+        case Op::Kind::Not_Equal: {
             if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
-            if (!ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { int64_type, int64_type })
-                && !ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { ptr_type, ptr_type })
-                && !ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { bool_type, bool_type })) {
+            const auto v2 = stack[stack.size() - 1];
+            const auto v1 = stack[stack.size() - 2];
+            if (v1 != v2) {
                 std::println(stderr,
-                             "{}: error: expected arguments of {} to be `int64 "
-                             "int64` or `ptr ptr` or `bool bool`",
+                             "{}: error: expected both arguments of {} to be "
+                             "of the same type",
                              op.tok.loc,
                              human(op.tok.kind));
+                std::println("{}: note: argument 1: `{}`", op.tok.loc, v1);
+                std::println("{}: note: argument 2: `{}`", op.tok.loc, v2);
                 return false;
             }
 
             stack.pop_back();
             stack.pop_back();
             stack.push_back(bool_type);
-            break;
+        } break;
         case Op::Kind::Less_Than:
         case Op::Kind::Less_Equal:
         case Op::Kind::Greater_Than:
-        case Op::Kind::Greater_Equal:
+        case Op::Kind::Greater_Equal: {
             if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
-            if (!ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { int64_type, int64_type })
-                && !ensure_stack<false>(
-                    op,
-                    stack,
-                    std::array<Type, 2> { ptr_type, ptr_type })) {
+            const auto v2 = stack[stack.size() - 1];
+            const auto v1 = stack[stack.size() - 2];
+            if (v1 != v2 || !v1.is_number_like() || !v2.is_number_like()) {
                 std::println(stderr,
-                             "{}: error: expected arguments of {} to be `int64 "
-                             "int64` or `ptr ptr`",
+                             "{0}: error: expected both arguments of {1} to be "
+                             "either `{2} {2}` or `{3} {3}`",
                              op.tok.loc,
-                             human(op.tok.kind));
+                             human(op.tok.kind),
+                             int64_type,
+                             ptr_type);
+                std::println("{}: note: argument 1: `{}`", op.tok.loc, v1);
+                std::println("{}: note: argument 2: `{}`", op.tok.loc, v2);
                 return false;
             }
 
             stack.pop_back();
             stack.pop_back();
             stack.push_back(bool_type);
-            break;
+        } break;
         case Op::Kind::Load64:
         case Op::Kind::Load32:
         case Op::Kind::Load16:
-        case Op::Kind::Load8:
-            if (!ensure_stack(op, stack, std::array<Type, 1> { ptr_type }))
+        case Op::Kind::Load8: {
+            if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
 
+            const auto ptr = stack.back();
+            if (!ptr.is_ptr()) {
+                std::println(stderr,
+                             "{}: error: expected argument 1 to be a pointer, "
+                             "but got `{}`",
+                             op.tok.loc,
+                             ptr);
+                return false;
+            }
             stack.pop_back();
-            stack.push_back(int64_type);
-            break;
+            stack.push_back(ptr.deref());
+        } break;
         case Op::Kind::Store64:
         case Op::Kind::Store32:
         case Op::Kind::Store16:
-        case Op::Kind::Store8:
-            if (!ensure_stack(op,
-                              stack,
-                              std::array<Type, 2> { any_type, ptr_type }))
+        case Op::Kind::Store8: {
+            if (!ensure_stack_size(op, stack.size(), 2))
                 return false;
 
+            const auto ptr = stack.back();
+            if (!ptr.is_ptr()) {
+                std::println(stderr,
+                             "{}: error: expected argument 2 to be a pointer, "
+                             "but got `{}`",
+                             op.tok.loc,
+                             ptr);
+                return false;
+            }
             stack.pop_back();
+
+            const auto value = stack.back();
+            if (const auto deref = ptr.deref();
+                value != deref && !ptr.is_opaque()) {
+                std::println(stderr,
+                             "{}: error: incompatible pointer vs value types",
+                             op.tok.loc);
+                std::println("{}: note: pointer value type: `{}`",
+                             op.tok.loc,
+                             deref);
+                std::println("{}: note: got value type: `{}`",
+                             op.tok.loc,
+                             value);
+                return false;
+            }
             stack.pop_back();
-            break;
+        } break;
         case Op::Kind::Print_Typestack_Then_Halt:
             std::println("{}: current typestack: {:s}",
                          op.tok.loc,
@@ -3575,11 +3716,17 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.pop_back();
             stack.push_back(int64_type);
             break;
-        case Op::Kind::To_Ptr:
+        case Op::Kind::To_Opaque:
             if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
             stack.pop_back();
             stack.push_back(ptr_type);
+            break;
+        case Op::Kind::To_Ptr_To:
+            if (!ensure_stack_size(op, stack.size(), 1))
+                return false;
+
+            stack.back().indirection += 1;
             break;
         case Op::Kind::To_Bool:
             if (!ensure_stack_size(op, stack.size(), 1))

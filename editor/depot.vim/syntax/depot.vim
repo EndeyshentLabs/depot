@@ -34,6 +34,7 @@ syn keyword depotKeywords link include nextgroup=depotString
 syn keyword depotKeywords proc extern memory dispatch const
 
 syn keyword depotTypes int64 ptr bool
+syn keyword depotPtrTo ptr-to
 
 syn keyword depotTodo    TODO FIXME XXX HACK NOTE contained
 syn region  depotComment start="//" end="$" contains=depotTodo,@Spell
@@ -47,6 +48,7 @@ hi def link depotConditional Conditional
 hi def link depotRepeat      Repeat
 hi def link depotKeywords    Keyword
 hi def link depotTypes       Type
+hi def link depotPtrTo       StorageClass " feels incorrect
 hi def link depotComment     Comment
 hi def link depotTodo        Todo
 
