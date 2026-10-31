@@ -1,7 +1,7 @@
-proc >cstr int64 ptr -- ptr { swap drop }
+proc >cstr int64 uint8 ptr-to -- uint8 ptr-to { swap drop }
 
-dispatch ptr+ proc ptr+i64 ptr int64 -- ptr { swap >int64 + >ptr }
-dispatch ptr+ proc i64+ptr int64 ptr -- ptr { >int64 + >ptr }
-proc ptr- ptr int64 -- ptr { swap >int64 swap - >ptr }
+dispatch ptr+ proc ptr+i64 ptr int64 -- ptr { swap >cast: int64 + >cast: ptr }
+dispatch ptr+ proc i64+ptr int64 ptr -- ptr { >cast: int64 + >cast: ptr }
+proc ptr- ptr int64 -- ptr { swap >cast: int64 swap - >cast: ptr }
 // removed because this is error prone
 // proc -ptr int64 ptr -- ptr { >int64 - >ptr }

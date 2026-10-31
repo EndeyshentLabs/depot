@@ -1,9 +1,9 @@
 include "../std/mem.dpt"
 link "c"
 
-extern proc printf ptr ptr -- ;
+extern proc printf uint8 ptr-to uint8 ptr-to -- ;
 
-proc print int64 ptr -- {
+proc print int64 uint8 ptr-to -- {
     >cstr
     "%s" >cstr
     swap printf

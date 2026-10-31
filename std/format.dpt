@@ -3,7 +3,7 @@ include "./posix.dpt"
 
 const format$int64/buffer/size 21 sizeof(char) * ;
 memory format$int64/buffer format$int64/buffer/size ;
-dispatch format proc format$int64 int64 -- int64 ptr {
+dispatch format proc format$int64 int64 -- int64 uint8 ptr-to {
     dup 0 = if
         drop "0"
     else
@@ -28,11 +28,11 @@ dispatch format proc format$int64 int64 -- int64 ptr {
             1 ptr-
             dup 45 swap !8
         then
-        dup format$int64/buffer - >int64 20 swap - swap
+        dup format$int64/buffer - >cast: int64 20 swap - swap >char*
     then
 }
 
-dispatch format proc format$bool bool -- int64 ptr {
+dispatch format proc format$bool bool -- int64 uint8 ptr-to {
     if   "true"
     else "false"
     then
@@ -40,4 +40,4 @@ dispatch format proc format$bool bool -- int64 ptr {
 
 dispatch print proc print$int64 int64 { format posix/print }
 dispatch print proc print$bool bool { format posix/print }
-dispatch print proc print$str int64 ptr { posix/print }
+dispatch print proc print$str int64 uint8 ptr-to { posix/print }

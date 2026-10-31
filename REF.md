@@ -12,7 +12,7 @@
 16#CaFe // STACK: 1337:int64 9:int64 51966:int64
 ```
 
-- string (`int64 ptr`)
+- string (`int64 uint8 ptr-to`)
 
 ```depot
 "Hello, World!" // STACK: length:int64 mem:ptr

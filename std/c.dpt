@@ -8,4 +8,4 @@ extern proc putchar int64 -- ;
 extern proc memcpy ptr ptr int64 -- ptr ;
 
 extern proc puts ptr -- ;
-proc c/puts int64 ptr -- { >cstr puts }
+proc c/puts int64 uint8 ptr-to -- { >cstr puts }

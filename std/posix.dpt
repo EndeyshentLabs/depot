@@ -2,6 +2,6 @@ include "./defs.dpt"
 
 link "c"
 
-extern proc write int64 ptr int64 -- int64 ;
-proc posix/print int64 ptr -- { stdout rot write drop }
+extern proc write int64 uint8 ptr-to int64 -- int64 ;
+proc posix/print int64 uint8 ptr-to -- { stdout rot write drop }
 proc posix/nl { "\n" posix/print }

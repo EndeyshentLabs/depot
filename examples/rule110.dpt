@@ -7,9 +7,9 @@ const sizeof(tape) 40 sizeof(bool) * ;
 memory tape sizeof(tape) ;
 memory next-tape sizeof(tape) ;
 
-proc lnot bool -- bool { >int64 0 = }
-proc lor bool bool -- bool { >int64 swap >int64 + >bool }
-proc land bool bool -- bool { >int64 swap >int64 * >bool }
+proc lnot bool -- bool { >cast: int64 0 = }
+proc lor bool bool -- bool { >cast: int64 swap >cast: int64 + >cast: bool }
+proc land bool bool -- bool { >cast: int64 swap >cast: int64 * >cast: bool }
 
 proc min int64 int64 -- int64 { over over < if drop else swap drop then }
 
@@ -28,7 +28,7 @@ proc ?alive int64 -- bool {
 proc iteration {
     sizeof(tape) 1 -
     1 while over over > {
-        dup ?alive >int64
+        dup ?alive >cast: int64
         over next-tape ptr+ !8
         1 +
     } drop drop
@@ -43,7 +43,7 @@ proc iteration {
 proc print-tape {
     sizeof(tape)
     0 while over over > {
-        dup tape ptr+ @8 >bool if
+        dup tape ptr+ @8 >cast: bool if
             35 putchar
         else
             32 putchar

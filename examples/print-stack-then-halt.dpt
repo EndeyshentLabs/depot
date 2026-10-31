@@ -1,6 +1,6 @@
 proc main -- int64 {
     true
     1337
-    "Hello" ??? // should produce: bool int64 int64 ptr
+    "Hello" ??? // should produce: bool int64 int64 uint8 ptr-to
     0
 }

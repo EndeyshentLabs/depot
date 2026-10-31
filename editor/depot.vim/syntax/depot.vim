@@ -22,9 +22,7 @@ syn keyword depotOperator
   \ cycle
   \ over
   \ mod
-  \ >int64
-  \ >ptr
-  \ >bool
+  \ >cast:
   \ ???
 
 syn keyword depotConditional if elif else then
@@ -33,7 +31,17 @@ syn keyword depotRepeat      while
 syn keyword depotKeywords link include nextgroup=depotString
 syn keyword depotKeywords proc extern memory dispatch const
 
-syn keyword depotTypes int64 ptr bool
+syn keyword depotTypes
+  \ ptr
+  \ int64
+  \ int32
+  \ int16
+  \ int8
+  \ uint64
+  \ uint32
+  \ uint16
+  \ uint8
+  \ bool
 syn keyword depotPtrTo ptr-to
 
 syn keyword depotTodo    TODO FIXME XXX HACK NOTE contained

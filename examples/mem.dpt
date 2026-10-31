@@ -6,7 +6,7 @@ memory hello-buffer buffer-size ;
 
 proc main -- int64 {
     hello-buffer "Hello, World!\n" swap memcpy drop
-    buffer-size hello-buffer posix/print
+    buffer-size hello-buffer >char* posix/print
 
     hello-buffer @8 // exit code 72
 }

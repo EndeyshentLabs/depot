@@ -40,3 +40,5 @@ const UINT16_MAX 16#ffff              ;
 
 const UINT8_MIN   0                    ;
 const UINT8_MAX   16#ff                ;
+
+proc >char* ptr -- uint8 ptr-to { >cast: uint8 ptr-to }

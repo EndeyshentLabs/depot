@@ -357,10 +357,8 @@ struct Token {
 
         Print_Stack,
 
-        To_Int64,
-        To_Ptr,
+        Cast,
         Ptr_To,
-        To_Bool,
 
         True,
         False,
@@ -423,10 +421,8 @@ static const std::unordered_map<std::string_view, Token::Kind> keywords = {
 
     { "???", Token::Kind::Print_Stack },
 
-    { ">int64", Token::Kind::To_Int64 },
-    { ">ptr", Token::Kind::To_Ptr },
+    { ">cast:", Token::Kind::Cast },
     { "ptr-to", Token::Kind::Ptr_To },
-    { ">bool", Token::Kind::To_Bool },
 
     { "true", Token::Kind::True },
     { "false", Token::Kind::False },
@@ -524,14 +520,10 @@ static constexpr std::string_view human(Token::Kind kind, bool plural = false)
         return "`!8`";
     case Token::Kind::Print_Stack:
         return plural ? "`???` keywords" : "`???` keyword";
-    case Token::Kind::To_Int64:
-        return plural ? "casts to an int64" : "cast to an int64";
-    case Token::Kind::To_Ptr:
-        return plural ? "casts to an opaque ptr" : "cast to an opaque ptr";
+    case Token::Kind::Cast:
+        return plural ? "casts" : "cast";
     case Token::Kind::Ptr_To:
         return plural ? "casts to a ptr" : "cast to a ptr";
-    case Token::Kind::To_Bool:
-        return plural ? "casts to a bool" : "cast to a bool";
     case Token::Kind::True:
         return plural ? "`true` keyword-constants" : "`true` keyword-constant";
     case Token::Kind::False:
@@ -929,10 +921,8 @@ struct Op {
 
         Print_Typestack_Then_Halt, // no operand (0 as int64)
 
-        To_Int64, // no operand (0 as int64)
-        To_Opaque, // no operand (0 as int64)
+        Cast, // operand(str): type name
         To_Ptr_To, // no operand (0 as int64)
-        To_Bool, // no operand (0 as int64)
     } kind;
 
     As as;
@@ -1023,31 +1013,43 @@ static constexpr std::string_view human(Op::Kind kind)
         return "Store8";
     case Op::Kind::Print_Typestack_Then_Halt:
         return "Print_Typestack_Then_Halt";
-    case Op::Kind::To_Int64:
-        return "To_Int64";
-    case Op::Kind::To_Opaque:
-        return "To_Opaque";
+    case Op::Kind::Cast:
+        return "Cast";
     case Op::Kind::To_Ptr_To:
         return "To_Ptr_To";
-    case Op::Kind::To_Bool:
-        return "To_Bool";
     default:
         std::unreachable();
     }
 }
 
 enum struct Builtin_Type {
-    Int64,
     Ptr,
+    Int64,
+    Int32,
+    Int16,
+    Int8,
+    Uint64,
+    Uint32,
+    Uint16,
+    Uint8,
     Bool,
 };
 
 constexpr usz size_of_builtin(Builtin_Type bt)
 {
     switch (bt) {
-    case Builtin_Type::Int64:
     case Builtin_Type::Ptr:
+    case Builtin_Type::Int64:
+    case Builtin_Type::Uint64:
         return 8;
+    case Builtin_Type::Int32:
+    case Builtin_Type::Uint32:
+        return 4;
+    case Builtin_Type::Int16:
+    case Builtin_Type::Uint16:
+        return 2;
+    case Builtin_Type::Int8:
+    case Builtin_Type::Uint8:
     case Builtin_Type::Bool:
         return 1;
     default:
@@ -1055,13 +1057,27 @@ constexpr usz size_of_builtin(Builtin_Type bt)
     }
 }
 
-constexpr std::string_view name_of_builtin(Builtin_Type bt)
+constexpr std::string name_of_builtin(Builtin_Type bt)
 {
     switch (bt) {
     case Builtin_Type::Ptr:
         return "ptr";
     case Builtin_Type::Int64:
         return "int64";
+    case Builtin_Type::Int32:
+        return "int32";
+    case Builtin_Type::Int16:
+        return "int16";
+    case Builtin_Type::Int8:
+        return "int8";
+    case Builtin_Type::Uint64:
+        return "uint64";
+    case Builtin_Type::Uint32:
+        return "uint32";
+    case Builtin_Type::Uint16:
+        return "uint16";
+    case Builtin_Type::Uint8:
+        return "uint8";
     case Builtin_Type::Bool:
         return "bool";
     default:
@@ -1117,7 +1133,7 @@ struct Type {
 
     constexpr bool compatible_with(const Type& other) const
     {
-        return (is_ptr() && other.is_ptr()) || (*this == other);
+        return (is_ptr() && other.is_opaque()) || (*this == other);
     }
 
     constexpr inline std::string to_string() const
@@ -1149,12 +1165,27 @@ struct std::formatter<Type> {
 };
 
 // clang-format off
-static const std::unordered_map<std::string_view, Type> builtin_types = {
-    { name_of_builtin(Builtin_Type::Ptr),   Type { Builtin_Type::Ptr,   0 } },
-    { name_of_builtin(Builtin_Type::Int64), Type { Builtin_Type::Int64, 0 } },
-    { name_of_builtin(Builtin_Type::Bool),  Type { Builtin_Type::Bool,  0 } },
+static const std::unordered_map<std::string, Type> builtin_types = {
+    { name_of_builtin(Builtin_Type::Ptr),    Type { Builtin_Type::Ptr,    0 } },
+    { name_of_builtin(Builtin_Type::Int64),  Type { Builtin_Type::Int64,  0 } },
+    { name_of_builtin(Builtin_Type::Int32),  Type { Builtin_Type::Int32,  0 } },
+    { name_of_builtin(Builtin_Type::Int16),  Type { Builtin_Type::Int16,  0 } },
+    { name_of_builtin(Builtin_Type::Int8),   Type { Builtin_Type::Int8,   0 } },
+    { name_of_builtin(Builtin_Type::Uint64), Type { Builtin_Type::Uint64, 0 } },
+    { name_of_builtin(Builtin_Type::Uint32), Type { Builtin_Type::Uint32, 0 } },
+    { name_of_builtin(Builtin_Type::Uint16), Type { Builtin_Type::Uint16, 0 } },
+    { name_of_builtin(Builtin_Type::Uint8),  Type { Builtin_Type::Uint8,  0 } },
+    { name_of_builtin(Builtin_Type::Bool),   Type { Builtin_Type::Bool,   0 } },
 };
 // clang-format on
+
+const Type* type_by_name(const std::string& name)
+{
+    if (builtin_types.contains(name))
+        return &builtin_types.at(name);
+    else
+        return nullptr;
+}
 
 struct Type_Sig {
     std::vector<Type> input_types;
@@ -1306,6 +1337,11 @@ struct Parser {
         return Name_Availabilty::Available;
     }
 
+    bool is_name_a_type(const std::string& name)
+    {
+        return builtin_types.contains(name);
+    }
+
     template <typename... Args>
     void
     error(const Location& loc, std::format_string<Args...> text, Args&&... args)
@@ -1413,18 +1449,25 @@ struct Parser {
             }
 
             if (tok.kind == Token::Kind::Ptr_To) {
-                auto& types = result.input_types;
+                bool empty = false;
                 if (return_type_mode)
-                    types = result.return_types;
+                    empty = result.return_types.empty();
+                else
+                    empty = result.input_types.empty();
 
-                if (types.empty()) {
+                if (empty) {
                     error(tok,
                           "{} must follow the type, but the type stack "
                           "is empty",
                           human(tok.kind));
                     return std::nullopt;
                 }
-                types.back().indirection += 1;
+
+                if (return_type_mode)
+                    result.return_types.back().indirection += 1;
+                else
+                    result.input_types.back().indirection += 1;
+
                 continue;
             }
 
@@ -1436,16 +1479,18 @@ struct Parser {
                 return std::nullopt;
             }
 
-            if (!builtin_types.contains(tok.text)) {
+            if (!is_name_a_type(tok.text)) {
                 error(tok, "unknown type {}", tok.text);
                 return std::nullopt;
             }
 
-            if (return_type_mode) {
-                result.return_types.push_back(builtin_types.at(tok.text));
-            } else {
-                result.input_types.push_back(builtin_types.at(tok.text));
-            }
+            const auto* type = type_by_name(tok.text);
+            ASSERT(type != nullptr, "Compiler Bug: couldn't find type");
+
+            if (return_type_mode)
+                result.return_types.push_back(*type);
+            else
+                result.input_types.push_back(*type);
         }
 
         if (!expect(self,
@@ -1465,7 +1510,7 @@ struct Parser {
 
         const auto proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name) {
-            note(self.loc, "for this procedure definition");
+            note(self, "for this procedure definition");
             return std::nullopt;
         }
 
@@ -1473,13 +1518,13 @@ struct Parser {
 
         const auto sig = parse_type_sig(self);
         if (!sig) {
-            note(self.loc, "for this procedure definition");
+            note(self, "for this procedure definition");
             return std::nullopt;
         }
 
         const auto open_curly = expect(self, Token::Kind::Open_Curly);
         if (!open_curly) {
-            note(self.loc, "for this procedure definition");
+            note(self, "for this procedure definition");
             return std::nullopt;
         }
 
@@ -1529,7 +1574,7 @@ struct Parser {
 
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             if (!parse_token(toks.back())) {
-                note(self.loc, "inside of this procedure body");
+                note(self, "inside of this procedure body");
                 return std::nullopt;
             }
         }
@@ -1563,7 +1608,7 @@ struct Parser {
         const auto lib_name = expect(self, Token::Kind::String);
 
         if (!lib_name) {
-            note(self.loc, "for this link directive");
+            note(self, "for this link directive");
             return false;
         }
 
@@ -1591,7 +1636,7 @@ struct Parser {
         while (!toks.empty() && toks.back().kind != Token::Kind::Then
                && toks.back().kind != Token::Kind::Else) {
             if (!parse_token(toks.back())) {
-                note(self.loc, "inside of this {} block", block_name);
+                note(self, "inside of this {} block", block_name);
                 return false;
             }
         }
@@ -1620,7 +1665,7 @@ struct Parser {
                         return false;
                 } else if (!parse_token(toks.back())) {
                     note(else_or_then_tok->loc, "inside of this else branch");
-                    note(self.loc, "inside of this {} block", block_name);
+                    note(self, "inside of this {} block", block_name);
                     return false;
                 }
             }
@@ -1628,7 +1673,7 @@ struct Parser {
             if (!elif) {
                 if (!expect(self, Token::Kind::Then)) {
                     error(else_or_then_tok->loc, "unclosed else branch");
-                    note(self.loc, "of this {} block", block_name);
+                    note(self, "of this {} block", block_name);
                     return false;
                 }
 
@@ -1641,7 +1686,7 @@ struct Parser {
                 error(else_or_then_tok->loc,
                       "`if` with `elif`, but without final `else`, may cause "
                       "unknown stack state if all the checks failed");
-                note(self.loc, "last opened `elif` branch");
+                note(self, "last opened `elif` branch");
                 note(else_or_then_tok->loc,
                      "consider adding `else` branch to resolve the error");
                 return false;
@@ -1664,7 +1709,7 @@ struct Parser {
         ctx.ops.emplace_back(self, Op::Kind::While);
         while (!toks.empty() && toks.back().kind != Token::Kind::Open_Curly) {
             if (!parse_token(toks.back())) {
-                note(self.loc, "inside of this while loop body");
+                note(self, "inside of this while loop body");
                 return false;
             }
         }
@@ -1679,7 +1724,7 @@ struct Parser {
         ctx.ops.emplace_back(open_curly.value(), Op::Kind::Do, 1337);
         while (!toks.empty() && toks.back().kind != Token::Kind::Close_Curly) {
             if (!parse_token(toks.back())) {
-                note(self.loc, "inside of this while loop body");
+                note(self, "inside of this while loop body");
                 return false;
             }
         }
@@ -1705,7 +1750,7 @@ struct Parser {
         const auto proc_or_external_name
             = expect(self, { Token::Kind::Proc, Token::Kind::String }, false);
         if (!proc_or_external_name.has_value()) {
-            note(self.loc, "for this `extern` construction");
+            note(self, "for this `extern` construction");
             return false;
         }
 
@@ -1715,7 +1760,7 @@ struct Parser {
             toks.pop_back();
 
             if (!expect(self, Token::Kind::Proc)) {
-                note(self.loc, "for this `extern` construction");
+                note(self, "for this `extern` construction");
                 return false;
             }
         } else
@@ -1723,20 +1768,20 @@ struct Parser {
 
         const auto proc_name = expect(self, Token::Kind::Ident);
         if (!proc_name.has_value()) {
-            note(self.loc, "as procedure name for this `extern` construction");
+            note(self, "as procedure name for this `extern` construction");
             return false;
         }
 
         const auto sig = parse_type_sig(self);
         if (!sig.has_value()) {
-            note(self.loc, "for this `extern` construction");
+            note(self, "for this `extern` construction");
             return false;
         }
 
         // TODO: calling convention
 
         if (!expect(self, Token::Kind::Semicolon).has_value()) {
-            note(self.loc, "to end this `extern` construction");
+            note(self, "to end this `extern` construction");
             return false;
         }
 
@@ -1812,7 +1857,7 @@ struct Parser {
         const auto path = expect(self, Token::Kind::String);
 
         if (!path) {
-            note(self.loc, "for this include directive");
+            note(self, "for this include directive");
             return false;
         }
 
@@ -1852,7 +1897,7 @@ struct Parser {
             error(self,
                   "couldn't find file `{}` in the search path",
                   include_path.string());
-            note(self.loc, "search path:");
+            note(self, "search path:");
             for (const auto& root : roots)
                 std::println("- {}", root.string());
             return false;
@@ -1865,19 +1910,19 @@ struct Parser {
 
         auto l = Lexer::create(found.value());
         if (!l.has_value()) {
-            note(self.loc, "in file included from here");
+            note(self, "in file included from here");
             return false;
         }
 
         std::vector<Token> included_toks;
         if (!l->lex(included_toks)) {
-            note(self.loc, "in file included from here");
+            note(self, "in file included from here");
             return false;
         }
 
         Parser include_parser { included_toks, ctx, found.value() };
         if (!include_parser.parse()) {
-            note(self.loc, "in file included from here");
+            note(self, "in file included from here");
             return false;
         }
 
@@ -2158,8 +2203,8 @@ struct Parser {
                 }
                 break;
             case Token::Kind::Print_Stack:
-                note(t.loc, "current stack: {}", value_stack);
-                note(t.loc, "stopping constant expression evaluation");
+                note(t, "current stack: {}", value_stack);
+                note(t, "stopping constant expression evaluation");
                 return std::nullopt;
             case Token::Kind::Open_Curly:
             case Token::Kind::Close_Curly:
@@ -2179,10 +2224,8 @@ struct Parser {
             case Token::Kind::Store32:
             case Token::Kind::Store16:
             case Token::Kind::Store8:
-            case Token::Kind::To_Int64:
-            case Token::Kind::To_Ptr:
+            case Token::Kind::Cast:
             case Token::Kind::Ptr_To:
-            case Token::Kind::To_Bool:
             case Token::Kind::Include:
             case Token::Kind::Const:
             case Token::Kind::Memory:
@@ -2225,13 +2268,13 @@ struct Parser {
 
         const auto name = expect(self, Token::Kind::Ident);
         if (!name.has_value()) {
-            note(self.loc, "for this `const` construction");
+            note(self, "for this `const` construction");
             return false;
         }
 
         const auto value = parse_constexpr(self);
         if (!value.has_value()) {
-            note(self.loc, "for this `const` construction");
+            note(self, "for this `const` construction");
             return false;
         }
 
@@ -2253,13 +2296,13 @@ struct Parser {
 
         const auto name = expect(self, Token::Kind::Ident);
         if (!name.has_value()) {
-            note(self.loc, "for this `memory` construction");
+            note(self, "for this `memory` construction");
             return false;
         }
 
         const auto size = parse_constexpr(self);
         if (!size.has_value()) {
-            note(self.loc, "for this `memory` construction");
+            note(self, "for this `memory` construction");
             return false;
         }
 
@@ -2283,23 +2326,44 @@ struct Parser {
 
         const auto name = expect(self, Token::Kind::Ident);
         if (!name.has_value()) {
-            note(self.loc, "for this `dispatch` construction");
+            note(self, "for this `dispatch` construction");
             return false;
         }
 
         if (!expect(self, Token::Kind::Proc, false)) {
-            note(self.loc, "for this `dispatch` construction");
+            note(self, "for this `dispatch` construction");
             return false;
         }
 
         const auto proc = parse_proc();
         if (!proc.has_value()) {
-            note(self.loc, "in the procedure of this dispatch construction");
+            note(self, "in the procedure of this dispatch construction");
             return false;
         }
 
         ctx.dispatch_groups.emplace(name->text, proc.value());
 
+        return true;
+    }
+
+    bool parse_cast()
+    {
+        const auto self = toks.back();
+        toks.pop_back();
+
+        const auto type_name = expect(self, Token::Kind::Ident);
+        if (!type_name.has_value()) {
+            note(self, "for this `cast`");
+            return false;
+        }
+
+        const auto type_tok = type_name.value();
+        if (!is_name_a_type(type_tok.text)) {
+            error(type_tok, "no such type `{}`", type_tok.text);
+            return false;
+        }
+
+        ctx.ops.emplace_back(self, Op::Kind::Cast, type_tok.text);
         return true;
     }
 
@@ -2765,7 +2829,7 @@ struct Parser {
             ctx.ops.emplace_back(t, Op::Kind::Print_Typestack_Then_Halt);
             toks.pop_back();
             break;
-        case Token::Kind::To_Int64:
+        case Token::Kind::Cast:
             if (is_in_global_scope()) {
                 error(t,
                       "{} is only allowed inside of "
@@ -2774,20 +2838,9 @@ struct Parser {
                 toks.pop_back();
                 return false;
             }
-            ctx.ops.emplace_back(t, Op::Kind::To_Int64);
-            toks.pop_back();
-            break;
-        case Token::Kind::To_Ptr:
-            if (is_in_global_scope()) {
-                error(t,
-                      "{} is only allowed inside of "
-                      "procedure bodies",
-                      human(t.kind));
-                toks.pop_back();
+
+            if (!parse_cast())
                 return false;
-            }
-            ctx.ops.emplace_back(t, Op::Kind::To_Opaque);
-            toks.pop_back();
             break;
         case Token::Kind::Ptr_To:
             if (is_in_global_scope()) {
@@ -2801,18 +2854,6 @@ struct Parser {
             ctx.ops.emplace_back(t, Op::Kind::To_Ptr_To);
             toks.pop_back();
             break;
-        case Token::Kind::To_Bool:
-            if (is_in_global_scope()) {
-                error(t,
-                      "{} is only allowed inside of "
-                      "procedure bodies",
-                      human(t.kind));
-                toks.pop_back();
-                return false;
-            }
-            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
-            toks.pop_back();
-            break;
         case Token::Kind::True:
             if (is_in_global_scope()) {
                 error(t,
@@ -2823,7 +2864,9 @@ struct Parser {
                 return false;
             }
             ctx.ops.emplace_back(t, Op::Kind::Push_Int, 1);
-            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
+            ctx.ops.emplace_back(t,
+                                 Op::Kind::Cast,
+                                 name_of_builtin(Builtin_Type::Bool));
             toks.pop_back();
             break;
         case Token::Kind::False:
@@ -2836,7 +2879,9 @@ struct Parser {
                 return false;
             }
             ctx.ops.emplace_back(t, Op::Kind::Push_Int, 0);
-            ctx.ops.emplace_back(t, Op::Kind::To_Bool);
+            ctx.ops.emplace_back(t,
+                                 Op::Kind::Cast,
+                                 name_of_builtin(Builtin_Type::Bool));
             toks.pop_back();
             break;
         case Token::Kind::Include:
@@ -3237,7 +3282,12 @@ namespace x86_64 {
                 out << "\tpopq %rcx\n";
                 out << "\tmovb %cl, (%rax)\n";
                 break;
-            case Op::Kind::To_Bool:
+            case Op::Kind::Cast:
+                if (std::get<std::string>(op.as)
+                    != name_of_builtin(Builtin_Type::Bool))
+                    break;
+
+                // Cast to a bool
                 out << "\tpopq %rax\n";
                 out << "\txorq %rcx, %rcx\n";
                 out << "\ttest %rax, %rax\n";
@@ -3257,8 +3307,6 @@ namespace x86_64 {
                 break;
             case Op::Kind::While:
             case Op::Kind::Then:
-            case Op::Kind::To_Int64:
-            case Op::Kind::To_Opaque:
             case Op::Kind::To_Ptr_To:
                 break;
             default:
@@ -3431,7 +3479,7 @@ bool ensure_stack(const Op& self,
         return true;
 
     for (ssz i = expect.size() - 1; i >= 0; --i) {
-        if (!expect[i].compatible_with(have[i])) {
+        if (!have[i].compatible_with(expect[i])) {
             print_error<enable_logging>(
                 "{}: error: expected argument {} to be of type `{}`, "
                 "but got `{}`",
@@ -3453,6 +3501,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
     const Scoped_Stopwatch stopwatch { "typechecking" };
 
     static const Type& int64_type = builtin_types.at("int64");
+    static const Type char_pointer = Type { Builtin_Type::Uint8, 1 };
     static const Type& bool_type = builtin_types.at("bool");
     static const Type& ptr_type = builtin_types.at("ptr");
 
@@ -3502,7 +3551,7 @@ bool typecheck_and_sema(Da_Thing& ctx)
             stack.push_back(int64_type);
             break;
         case Op::Kind::Push_Str:
-            stack.push_back(ptr_type);
+            stack.push_back(char_pointer);
             break;
         case Op::Kind::Push_Global_Memory:
             stack.push_back(ptr_type);
@@ -3710,29 +3759,23 @@ bool typecheck_and_sema(Da_Thing& ctx)
                          typestack_to_string(stack));
             std::println("{}: note: stopping", op.tok.loc);
             return false;
-        case Op::Kind::To_Int64:
-            if (!ensure_stack_size(op, stack.size(), 1))
-                return false;
-            stack.pop_back();
-            stack.push_back(int64_type);
             break;
-        case Op::Kind::To_Opaque:
+        case Op::Kind::Cast:
             if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
             stack.pop_back();
-            stack.push_back(ptr_type);
+            if (const auto type = type_by_name(std::get<std::string>(op.as)))
+                stack.push_back(*type);
+            else
+                ASSERT(type != nullptr,
+                       "Compiler Bug: Couldn't find type in typechecker");
+
             break;
         case Op::Kind::To_Ptr_To:
             if (!ensure_stack_size(op, stack.size(), 1))
                 return false;
 
             stack.back().indirection += 1;
-            break;
-        case Op::Kind::To_Bool:
-            if (!ensure_stack_size(op, stack.size(), 1))
-                return false;
-            stack.pop_back();
-            stack.push_back(bool_type);
             break;
         case Op::Kind::While:
             blocks.push_back(std::make_pair(stack, op.kind));
